@@ -1,0 +1,35 @@
+# =========================================================================
+# scGPT 어노테이션 툴킷 - 설정 파일
+# 연구자가 수정하는 것은 이 파일뿐.
+# =========================================================================
+
+# --- 입력/출력 경로 (컨테이너 내부 경로, 수정 금지) ---
+reference_path: /workspace/data/c_data.h5ad
+query_path:     /workspace/data/filtered_ms_adata.h5ad
+model_dir:      /workspace/model
+output_dir:     /workspace/outputs
+
+# --- 데이터 설정 ---
+celltype_col: celltype
+source_celltype_col: "Factor Value[inferred cell type - authors labels]"
+data_is_raw: false
+
+# --- 전처리 파라미터 ---
+filter_gene_by_counts: false
+n_bins: 51
+
+# --- 학습/추론 파라미터 ---
+max_seq_len: 3001
+batch_size: 32
+eval_batch_size: 32
+epochs: 10
+lr: 0.0001
+dropout: 0.2
+schedule_ratio: 0.9
+train_ratio: 0.9
+mask_ratio: 0.0
+include_zero_gene: false
+amp: true
+
+# --- 재현성 ---
+seed: 42

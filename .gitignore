@@ -1,0 +1,9 @@
+*.h5ad
+*.pt
+*.bin
+*.pth
+data/
+outputs/
+models/scGPT/
+__pycache__/
+.DS_Store
