@@ -7,3 +7,6 @@ outputs/
 models/scGPT/
 __pycache__/
 .DS_Store
+*.log
+tests/fixtures/
+tests/demo_outputs/

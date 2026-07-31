@@ -1,7 +1,0 @@
-/var/spool/slurmd/job22495/slurm_script: line 8: cd: /home/oooo8962/scgpt-toolkit: No such file or directory
-===================================================
-GPU 스모크 테스트 (--gpus all, 기존 코드 미변경)
-===================================================
-Unable to find image 'scgpt-toolkit:v0.1' locally
-docker: Error response from daemon: pull access denied for scgpt-toolkit, repository does not exist or may require 'docker login': denied: requested access to the resource is denied.
-See 'docker run --help'.
