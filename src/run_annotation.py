@@ -250,25 +250,27 @@ def load_model(model_dir: str, vocab, model_configs: dict,
     model.to(device)
     return model
 
-
 def finetune(model, train_loader, valid_loader, vocab, cfg: dict, device: torch.device):
     from torch.optim import Adam
     from torch.optim.lr_scheduler import StepLR
 
-    epochs   = cfg["epochs"]
-    lr       = cfg.get("lr", 1e-4)
-    amp      = cfg.get("amp", True)
+    epochs      = cfg["epochs"]
+    lr          = cfg.get("lr", 1e-4)
+    amp         = cfg.get("amp", True)
+    accum_steps = cfg.get("grad_accum_steps", 1)
     criterion = nn.CrossEntropyLoss()
     optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
     scheduler = StepLR(optimizer, step_size=1, gamma=cfg.get("schedule_ratio", 0.9))
     scaler    = torch.cuda.amp.GradScaler(enabled=amp)
 
-    logger.info("Fine-tuning 시작")
+    logger.info(f"Fine-tuning 시작 (grad_accum_steps={accum_steps}, "
+                f"유효 배치 크기={train_loader.batch_size * accum_steps})")
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = correct = total = 0
+        optimizer.zero_grad()
 
-        for batch in train_loader:
+        for step, batch in enumerate(train_loader):
             gene_ids_b  = batch["gene_ids"].to(device)
             values_b    = batch["values"].to(device)
             ct_labels   = batch["celltype_labels"].to(device)
@@ -279,16 +281,19 @@ def finetune(model, train_loader, valid_loader, vocab, cfg: dict, device: torch.
                              src_key_padding_mask=padding_mask,
                              batch_labels=None, CLS=True,
                              CCE=False, MVC=False, ECS=False)
-                loss = criterion(out["cls_output"], ct_labels)
+                loss = criterion(out["cls_output"], ct_labels) / accum_steps
 
-            optimizer.zero_grad()
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(optimizer)
-            scaler.update()
 
-            total_loss += loss.item()
+            is_last_batch = (step + 1 == len(train_loader))
+            if (step + 1) % accum_steps == 0 or is_last_batch:
+                scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+
+            total_loss += loss.item() * accum_steps
             correct    += (out["cls_output"].argmax(1) == ct_labels).sum().item()
             total      += len(ct_labels)
 
@@ -316,7 +321,6 @@ def finetune(model, train_loader, valid_loader, vocab, cfg: dict, device: torch.
             f"train_acc={correct/max(total,1):.4f}  "
             f"val_acc={val_correct/max(val_total,1):.4f}"
         )
-
 
 def predict(model, adata, vocab, gene_ids: np.ndarray,
             id2type: dict, cfg: dict, device: torch.device):

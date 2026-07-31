@@ -20,8 +20,9 @@ n_bins: 51
 
 # --- 학습/추론 파라미터 ---
 max_seq_len: 3001
-batch_size: 32
-eval_batch_size: 32
+batch_size: 8
+grad_accum_steps: 4
+eval_batch_size: 16
 epochs: 10
 lr: 0.0001
 dropout: 0.2
@@ -29,7 +30,7 @@ schedule_ratio: 0.9
 train_ratio: 0.9
 mask_ratio: 0.0
 include_zero_gene: false
-amp: true
+amp: false
 
 # --- 재현성 ---
 seed: 42

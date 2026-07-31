@@ -19,12 +19,7 @@ echo "  결과:    ${OUTPUT_DIR}"
 echo "==================================================="
 
 docker run --rm \
-  --device /dev/nvidia0 \
-  --device /dev/nvidiactl \
-  --device /dev/nvidia-uvm \
-  --device /dev/nvidia-uvm-tools \
-  -v /usr/lib64/libcuda.so.560.35.05:/usr/lib64/libcuda.so.1:ro \
-  -v /lib64/libnvidia-ml.so.1:/usr/lib64/libnvidia-ml.so.1:ro \
+  --gpus all \
   -e NVIDIA_VISIBLE_DEVICES=0 \
   -e WANDB_MODE=offline \
   -v "${DATA_DIR}":/workspace/data:ro \

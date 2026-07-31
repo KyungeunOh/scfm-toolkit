@@ -1,0 +1,120 @@
+===================================================
+scGPT 어노테이션 툴킷 시작
+  데이터:  /home/oooo8962/scfm-toolkit/data
+  모델:    /home/oooo8962/scfm-toolkit/model
+  결과:    /home/oooo8962/scfm-toolkit/outputs
+===================================================
+───────────────────────────────── scFM Toolkit ─────────────────────────────────
+                            config.yaml 검증 결과                            
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ 항목                      ┃ 결과 ┃ 비고                                   ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 필수 키: reference_path   │  ✅  │                                        │
+│ 필수 키: query_path       │  ✅  │                                        │
+│ 필수 키: model_dir        │  ✅  │                                        │
+│ 필수 키: output_dir       │  ✅  │                                        │
+│ 필수 키: n_bins           │  ✅  │                                        │
+│ 파일 존재: reference_path │  ✅  │ /workspace/data/c_data.h5ad            │
+│ 파일 존재: query_path     │  ✅  │ /workspace/data/filtered_ms_adata.h5ad │
+│ 모델 파일: vocab.json     │  ✅  │ /workspace/model/vocab.json            │
+│ 모델 파일: args.json      │  ✅  │ /workspace/model/args.json             │
+│ 모델 파일: best_model.pt  │  ✅  │ /workspace/model/best_model.pt         │
+└───────────────────────────┴──────┴────────────────────────────────────────┘
+디바이스: cuda
+  GPU: NVIDIA GeForce RTX 3090
+╭─────────────────────────── Step 1/7: 데이터 로드 ────────────────────────────╮
+│ Reference/Query h5ad를 로드하고 batch/celltype 라벨을 정리합니다.            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Reference 로드: /workspace/data/c_data.h5ad
+Query 로드: /workspace/data/filtered_ms_adata.h5ad
+/opt/conda/lib/python3.10/site-packages/anndata/_core/anndata.py:1763: FutureWarning: The AnnData.concatenate method is deprecated in favour of the anndata.concat function. Please use anndata.concat instead.
+
+See the tutorial for concat at: https://anndata.readthedocs.io/en/latest/concatenation.html
+  warnings.warn(
+/opt/conda/lib/python3.10/site-packages/anndata/_core/merge.py:1015: FutureWarning: The default value of 'ignore' for the `na_action` parameter in pandas.Categorical.map is deprecated and will be changed to 'None' in a future version. Please set na_action to the desired value to avoid seeing this warning
+  concat_indices = concat_indices.str.cat(label_col.map(str), sep=index_unique)
+/opt/conda/lib/python3.10/site-packages/anndata/_core/merge.py:1015: FutureWarning: The default value of 'ignore' for the `na_action` parameter in pandas.Categorical.map is deprecated and will be changed to 'None' in a future version. Please set na_action to the desired value to avoid seeing this warning
+  concat_indices = concat_indices.str.cat(label_col.map(str), sep=index_unique)
+/opt/conda/lib/python3.10/site-packages/anndata/_core/anndata.py:788: UserWarning: 
+AnnData expects .var.index to contain strings, but got values like:
+    ['CFH', 'BAD', 'LAP3', 'CD99', 'WNT16']
+
+    Inferred to be: categorical
+
+  value_idx = self._prep_dim_index(value.index, attr)
+/opt/conda/lib/python3.10/site-packages/anndata/_core/anndata.py:788: UserWarning: 
+AnnData expects .var.index to contain strings, but got values like:
+    ['CFH', 'BAD', 'LAP3', 'CD99', 'WNT16']
+
+    Inferred to be: categorical
+
+  value_idx = self._prep_dim_index(value.index, attr)
+  Reference: 7844 세포
+  Query:     13468 세포
+  Cell type: 18종 → ['PVALB-expressing interneuron', 'SST-expressing interneuron', 'SV2C-expressing interneuron', 'VIP-expressing interneuron', 'astrocyte', 'cortical layer 2-3 excitatory neuron A', 'cortical layer 2-3 excitatory neuron B', 'cortical layer 4 excitatory neuron', 'cortical layer 5-6 excitatory neuron', 'endothelial cell', 'microglial cell', 'mixed excitatory neuron', 'mixed glial cell?', 'oligodendrocyte A', 'oligodendrocyte C', 'oligodendrocyte precursor cell', 'phagocyte', 'pyramidal neuron?']
+  ✓ reference 7844개 + query 13468개, cell type 18종
+╭─────────────────── Step 2/7: vocab 로드 및 유전자 필터링 ────────────────────╮
+│ scGPT vocab을 로드하고, 데이터 유전자와의 교집합만 남깁니다.                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+vocab 교집합: 3000 → 2808 유전자
+  ✓ vocab 매칭 후 2808개 유전자 남음
+╭────────────────────────────── Step 3/7: 전처리 ──────────────────────────────╮
+│ 정규화, log1p, binning 등 scGPT 입력 형식으로 전처리합니다.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Reference 전처리 중...
+scGPT - INFO - Normalizing total counts ...
+/opt/conda/lib/python3.10/site-packages/scanpy/preprocessing/_normalization.py:207: UserWarning: Received a view of an AnnData. Making a copy.
+  view_to_actual(adata)
+scGPT - INFO - Binning data ...
+Query 전처리 중...
+scGPT - INFO - Normalizing total counts ...
+scGPT - INFO - Binning data ...
+scGPT - INFO - Normalizing total counts ...
+scGPT - INFO - Binning data ...
+scGPT - INFO - Normalizing total counts ...
+scGPT - INFO - Binning data ...
+  ✓ 정규화/binning 완료
+╭────────────────── Step 4/7: 토크나이징 및 DataLoader 준비 ───────────────────╮
+│ 토큰화 후 학습/검증 DataLoader를 구성합니다.                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+train: 7059개, valid: 785개
+  ✓ train batch 883개, valid batch 50개
+╭──────────────────────────── Step 5/7: 모델 로드 ─────────────────────────────╮
+│ 사전학습 가중치(best_model.pt)를 로드합니다.                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+가중치 로드: /workspace/model/best_model.pt
+  부분 로드: 135개 파라미터
+  ✓ 모델 로드 완료 (cuda)
+╭─────────────────────────── Step 6/7: Fine-tuning ────────────────────────────╮
+│ Reference로 classification head를 fine-tune합니다.                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Fine-tuning 시작 (grad_accum_steps=4, 유효 배치 크기=32)
+/opt/conda/lib/python3.10/site-packages/torch/nn/modules/transformer.py:296: UserWarning: The PyTorch API of nested tensors is in prototype stage and will change in the near future. (Triggered internally at /opt/conda/conda-bld/pytorch_1682343967769/work/aten/src/ATen/NestedTensorImpl.cpp:177.)
+  output = torch._nested_tensor_from_mask(output, src_key_padding_mask.logical_not(), mask_check=False)
+  Epoch  1/10  loss=1.8465  train_acc=0.3451  val_acc=0.5541
+  Epoch  2/10  loss=1.0922  train_acc=0.5958  val_acc=0.6395
+  Epoch  3/10  loss=0.8792  train_acc=0.6930  val_acc=0.7096
+  Epoch  4/10  loss=0.6506  train_acc=0.7908  val_acc=0.8076
+  Epoch  5/10  loss=0.4862  train_acc=0.8524  val_acc=0.8140
+  Epoch  6/10  loss=0.3836  train_acc=0.8857  val_acc=0.8459
+  Epoch  7/10  loss=0.3197  train_acc=0.9052  val_acc=0.8510
+  Epoch  8/10  loss=0.2734  train_acc=0.9217  val_acc=0.8242
+  Epoch  9/10  loss=0.2245  train_acc=0.9382  val_acc=0.8420
+  Epoch 10/10  loss=0.1870  train_acc=0.9484  val_acc=0.8586
+  ✓ fine-tuning 완료
+╭──────────────────────────── Step 7/7: Query 예측 ────────────────────────────╮
+│ Fine-tune된 모델로 query 세포의 cell type을 예측합니다.                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+예측 완료
+  ✓ 예측 완료
+────────────────────────────────── 결과 저장 ───────────────────────────────────
+결과 저장: /workspace/outputs/predictions.h5ad
+정확도: 0.8419 (11339/13468)
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ 완료!                                                                        │
+│ 결과 위치: /workspace/outputs                                                │
+│ accuracy = 84.19%  (11339/13468)                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+===================================================
+완료. 결과: /home/oooo8962/scfm-toolkit/outputs
+===================================================
