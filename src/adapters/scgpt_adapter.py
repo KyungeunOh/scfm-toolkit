@@ -282,7 +282,14 @@ class ScGPTAdapter(ModelAdapter):
     # ------------------------------------------------------------------
     # fine-tune
     # ------------------------------------------------------------------
-    def finetune(self, model, prepared_inputs, cfg: dict, device) -> None:
+    def finetune(self, model, prepared_inputs, cfg: dict, device):
+        """
+        Reference 세트로 classification head(및 backbone)를 fine-tune한다.
+        공식 Tutorial_Annotation.ipynb와 동일하게, val_acc가 가장 좋았던 epoch의
+        가중치를 별도로 보관했다가 반환한다 (마지막 epoch이 항상 최선이라는 보장이 없으므로).
+        run.py는 이 반환값을 predict()에 넘겨서 실제로 best epoch 모델로 예측하게 된다.
+        """
+        import copy
         from torch.optim import Adam
         from torch.optim.lr_scheduler import StepLR
 
@@ -298,6 +305,10 @@ class ScGPTAdapter(ModelAdapter):
         optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
         scheduler = StepLR(optimizer, step_size=1, gamma=cfg.get("schedule_ratio", 0.9))
         scaler = torch.cuda.amp.GradScaler(enabled=amp)
+
+        best_val_acc = -1.0
+        best_epoch = None
+        best_state = None
 
         logger.info(f"Fine-tuning 시작 (grad_accum_steps={accum_steps}, "
                     f"유효 배치 크기={train_loader.batch_size * accum_steps})")
@@ -347,12 +358,23 @@ class ScGPTAdapter(ModelAdapter):
                     val_correct += (out["cls_output"].argmax(1) == ct_labels).sum().item()
                     val_total += len(ct_labels)
 
+            val_acc = val_correct / max(val_total, 1)
             logger.info(
                 f"  Epoch {epoch:2d}/{epochs}  "
                 f"loss={total_loss/max(len(train_loader),1):.4f}  "
                 f"train_acc={correct/max(total,1):.4f}  "
-                f"val_acc={val_correct/max(val_total,1):.4f}"
+                f"val_acc={val_acc:.4f}"
             )
+
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                best_epoch = epoch
+                best_state = copy.deepcopy(model.state_dict())
+
+        if best_state is not None:
+            logger.info(f"best epoch: {best_epoch}/{epochs} (val_acc={best_val_acc:.4f}) 가중치로 예측 진행")
+            model.load_state_dict(best_state)
+        return model
 
     # ------------------------------------------------------------------
     # 예측

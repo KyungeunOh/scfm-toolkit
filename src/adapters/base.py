@@ -51,8 +51,11 @@ class ModelAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def finetune(self, model, prepared_inputs, cfg: Dict[str, Any], device) -> None:
-        """mode: finetune_predict / train_head 에서 사용"""
+    def finetune(self, model, prepared_inputs, cfg: Dict[str, Any], device):
+        """
+        mode: finetune_predict / train_head 에서 사용.
+        validation 기준 best epoch의 모델을 반환해야 한다 (마지막 epoch이 아니라).
+        """
         raise NotImplementedError
 
     @abstractmethod

@@ -99,8 +99,8 @@ def run_finetune_predict(cfg: dict, adapter, device) -> None:
     _step_done(f"모델 로드 완료 ({device})")
 
     _step_banner(8, "Fine-tuning")
-    adapter.finetune(model, prepared, cfg, device)
-    _step_done("fine-tuning 완료")
+    model = adapter.finetune(model, prepared, cfg, device)
+    _step_done("fine-tuning 완료 (best validation epoch 가중치 적용)")
 
     _step_banner(9, "Query 예측")
     adata_result = adapter.predict(model, adata, prepared, id2type, cfg, device)
