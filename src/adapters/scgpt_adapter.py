@@ -269,12 +269,65 @@ class ScGPTAdapter(ModelAdapter):
             logger.info("  전체 가중치 로드 성공")
         except Exception:
             model_dict = model.state_dict()
-            pretrained_dict = torch.load(model_file, map_location=device)
-            pretrained_dict = {k: v for k, v in pretrained_dict.items()
-                                if k in model_dict and v.shape == model_dict[k].shape}
-            model_dict.update(pretrained_dict)
+            checkpoint_dict = torch.load(model_file, map_location=device)
+
+            # 이 체크포인트는 use_fast_transformer=True(FlashMHA)로 pretrain된 것이라
+            # self-attn 가중치가 Wqkv.weight/bias(결합 QKV 프로젝션)로 저장돼 있다.
+            # 지금 모델은 flash-attn이 없어 use_fast_transformer=False(표준
+            # nn.MultiheadAttention, in_proj_weight/bias)를 쓰지만, scGPT의 FlashMHA는
+            # qkv를 'b s (three h d) -> b s three h d' (three가 가장 바깥쪽 축)로
+            # reshape하므로 [Q(d_model); K(d_model); V(d_model)] 순서로 이어붙이고
+            # 각 블록 내부를 (head, head_dim) 순서로 나누는 PyTorch in_proj_weight와
+            # 레이아웃이 완전히 동일하다. 즉 키 이름만 바꾸면 근사가 아니라 수학적으로
+            # 동일한 가중치를 flash-attn 설치 없이 그대로 재사용할 수 있다.
+            import re
+            wqkv_pattern = re.compile(r"(transformer_encoder\.layers\.\d+\.self_attn)\.Wqkv\.(weight|bias)")
+            n_remapped = 0
+            remapped_dict = {}
+            for k, v in checkpoint_dict.items():
+                m = wqkv_pattern.match(k)
+                if m:
+                    k = f"{m.group(1)}.in_proj_{m.group(2)}"
+                    n_remapped += 1
+                remapped_dict[k] = v
+            checkpoint_dict = remapped_dict
+            if n_remapped:
+                logger.info(f"  Wqkv → in_proj 키 리매핑: {n_remapped}개 "
+                            f"(flash-attn 체크포인트를 표준 attention으로 재사용)")
+
+            matched = {}
+            shape_mismatch = []   # 이름은 같은데 shape가 다른 것 (진짜 의심 대상)
+            missing_in_ckpt = []  # 현재 모델엔 있는데 체크포인트엔 아예 없는 것
+            unused_in_ckpt = []   # 체크포인트엔 있는데 현재 모델엔 없는 것
+
+            for k, v in checkpoint_dict.items():
+                if k not in model_dict:
+                    unused_in_ckpt.append(k)
+                elif v.shape != model_dict[k].shape:
+                    shape_mismatch.append((k, tuple(v.shape), tuple(model_dict[k].shape)))
+                else:
+                    matched[k] = v
+
+            for k in model_dict:
+                if k not in checkpoint_dict:
+                    missing_in_ckpt.append(k)
+
+            model_dict.update(matched)
             model.load_state_dict(model_dict)
-            logger.info(f"  부분 로드: {len(pretrained_dict)}개 파라미터")
+
+            logger.info(f"  부분 로드: {len(matched)}/{len(model_dict)}개 파라미터")
+            logger.info(f"  [missing_in_ckpt] 체크포인트에 키 자체가 없음 ({len(missing_in_ckpt)}개, "
+                        f"보통 classifier head 등 task-specific 레이어면 정상):")
+            for k in missing_in_ckpt:
+                logger.info(f"    - {k}  shape={tuple(model_dict[k].shape)}")
+            logger.info(f"  [shape_mismatch] 키는 같은데 shape가 다름 ({len(shape_mismatch)}개, "
+                        f"backbone 레이어에서 나오면 설정값(config) 불일치를 의심):")
+            for k, ckpt_shape, cur_shape in shape_mismatch:
+                logger.info(f"    - {k}  ckpt={ckpt_shape}  current={cur_shape}")
+            if unused_in_ckpt:
+                logger.info(f"  [unused_in_ckpt] 체크포인트에만 있고 현재 모델엔 없는 키 ({len(unused_in_ckpt)}개):")
+                for k in unused_in_ckpt:
+                    logger.info(f"    - {k}")
 
         model.to(device)
         return model
