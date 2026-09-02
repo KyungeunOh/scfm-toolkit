@@ -170,7 +170,19 @@ hf-xet==1.5.0
 # transformers/datasets/huggingface_hub 버전은 위쪽 scGPT용 값과 겹치는 패키지라
 # 실제 설치 시 pip가 어떤 버전으로 맞출지 확인 필요). scGPT만 쓸 거면 이 구간은
 # 설치하지 않아도 된다.
-# 버전은 jkobject/geneformer(https://github.com/jkobject/geneformer)의
+#
+# 중요: geneformer 자체는 PyPI 패키지가 아니라서 이 파일의 나머지 줄들처럼
+# `pip install -r requirements.txt`만으로는 설치되지 않는다. 공식 배포처인
+# HuggingFace 저장소를 git-lfs로 클론해서 `pip install .`로 설치해야 한다
+# (그 클론 디렉터리 자체가 사전학습 체크포인트라 config.yaml의 model_dir로
+# 그대로 쓸 수 있다):
+#
+#   git lfs install
+#   git clone https://huggingface.co/ctheodoris/Geneformer
+#   cd Geneformer && pip install .
+#
+# 아래는 그 geneformer 패키지가 요구하는 부가 의존성. 버전은
+# jkobject/geneformer(https://github.com/jkobject/geneformer)의
 # requirements.txt 기준.
 # =========================================================================
 transformers==4.46.*

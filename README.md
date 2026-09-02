@@ -71,20 +71,48 @@ fine-tune한다.
 
 ## Geneformer 지원 (검증 필요)
 
-`config.yaml`에서 `model: geneformer`로 지정하면 동작하도록 구현했지만, 이 개발 환경에는
-`geneformer`/`torch` 패키지가 없어 **실제 라이브러리를 대상으로 실행 검증은 아직 못했다**
-(공식 소스코드를 읽고 시그니처/동작을 근거로 작성 — `src/adapters/geneformer_adapter.py`
-상단 docstring에 어떤 부분이 특히 불확실한지 구체적으로 적어뒀다). 실제로 돌려보기 전 확인할 것:
+`config.yaml`에서 `model: geneformer`로 지정하면 동작하도록 구현했지만, 이 툴킷을 개발한
+환경에는 `geneformer`/`torch` 패키지가 없어 **실제 라이브러리를 대상으로 실행 검증은 아직
+못했다** (공식 소스코드를 읽고 시그니처/동작을 근거로 작성 —
+`src/adapters/geneformer_adapter.py` 상단 docstring에 어떤 부분이 특히 불확실한지
+구체적으로 적어뒀다). GPU가 있는 실제 환경(HPC/Docker)에서 아래 순서로 처음 검증할 것을
+권장한다.
 
-- `pip install -r requirements.txt`로 설치되는 `geneformer`/`transformers` 등이 scGPT 스택과
-  같은 환경에서 충돌 없이 설치되는지 (requirements.txt 하단 "Geneformer 어댑터 전용" 구간 참고)
-- `reference_path`/`query_path` h5ad가 **raw count**인지 (Geneformer는 세포당 raw
+### 1) geneformer 패키지 설치
+
+`geneformer`는 PyPI 패키지가 아니라서 `pip install -r requirements.txt`만으로는 설치되지
+않는다. HuggingFace 공식 저장소를 git-lfs로 클론해서 직접 설치해야 한다 (이 클론
+디렉터리 자체가 사전학습 체크포인트도 포함하고 있어 아래 `model_dir`로 그대로 쓸 수 있다):
+
+```bash
+git lfs install
+git clone https://huggingface.co/ctheodoris/Geneformer
+cd Geneformer && pip install .
+```
+
+그다음 `pip install -r requirements.txt`로 나머지 부가 의존성(transformers, peft 등,
+requirements.txt 하단 "Geneformer 어댑터 전용" 구간)을 설치한다 — scGPT 스택과 같은
+환경에 함께 설치 시 버전 충돌 여부는 미검증이니, 가능하면 scGPT와 별도 가상환경/이미지로
+먼저 시도해보는 걸 권장한다.
+
+### 2) 데이터/config 준비
+
+- `reference_path`/`query_path` h5ad가 **raw count**인지 확인 (Geneformer는 세포당 raw
   총 count가 필요 — scGPT용으로 준비된 정규화된 데이터셋을 그대로 재사용하면 안 됨)
-- `model_dir`에 Geneformer 사전학습 체크포인트(`config.json`, `model.safetensors`,
-  `gene_name_id_dict*.pkl` 등)가 있는지
+- `model_dir`을 위 1)에서 클론한 `Geneformer` 디렉터리로 지정
+  (`config.json`, `model.safetensors`, `gene_name_id_dict*.pkl` 등이 그 안에 있어야 함)
+- `config.yaml`에서 `model: geneformer`로 바꾸고, `n_bins`/`data_is_raw` 등 scGPT 전용
+  파라미터는 무시됨(geneformer_adapter.py가 참조하지 않음)
+
+### 3) 실행 후 확인 포인트
+
 - `src/adapters/geneformer_adapter.py`의 `finetune()`에 있는 체크포인트 디렉터리 이름
-  glob 패턴이 실제 설치된 geneformer 버전의 출력과 맞는지 (안 맞으면 명확한
-  `RuntimeError` 메시지로 알려주도록 만들어뒀다)
+  glob 패턴(`*_geneformer_cellClassifier_reference`)이 실제 설치된 geneformer 버전의
+  출력과 맞는지 — 안 맞으면 명확한 `RuntimeError` 메시지로 알려주도록 만들어뒀으니, 에러
+  메시지에 `work_dir`(=`output_dir/geneformer_work`) 아래 실제 생성된 디렉터리 이름을
+  붙여서 알려주면 그 부분만 빠르게 고칠 수 있다
+- 에러가 나면 스택 트레이스와 함께 `work_dir` 아래 실제로 뭐가 생성됐는지
+  (`ls output_dir/geneformer_work`) 같이 확인하면 원인 파악이 훨씬 빠르다
 
 ## 새 모델을 추가하는 법 (일반)
 
