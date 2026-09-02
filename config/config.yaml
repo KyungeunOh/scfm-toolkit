@@ -38,7 +38,7 @@ schedule_ratio: 0.9
 train_ratio: 0.9
 mask_ratio: 0.0
 include_zero_gene: false
-amp: false
+amp: true
 
 # --- 재현성 ---
 seed: 42
