@@ -4,8 +4,11 @@
 # =========================================================================
 
 # --- 어떤 모델 / 어떤 실행 모드를 쓸지 ---
-# model: 현재 scgpt만 지원. adapters/__init__.py의 레지스트리에 등록된 모델만 사용 가능
-#        (다음 모델 추가 시 이 값으로 선택하게 될 예정, 예: geneformer)
+# model: scgpt 또는 geneformer (adapters/__init__.py의 레지스트리에 등록된 모델만 사용 가능).
+#        geneformer는 아직 실제 라이브러리로 실행 검증 전이니 README.md의
+#        "Geneformer 지원 (검증 필요)" 절을 먼저 확인할 것. 모델이 다르면 아래 데이터/
+#        전처리/학습 파라미터 중 일부(특히 data_is_raw, n_bins 등 scGPT 전용 항목)는
+#        의미가 없거나 다르게 해석될 수 있음.
 # mode:  현재 finetune_predict만 구현됨. embed / train_head는 config 구조상
 #        자리는 마련해두었으나 실행 시 "아직 구현 안 됨" 에러로 안내됨 (로드맵)
 model: scgpt

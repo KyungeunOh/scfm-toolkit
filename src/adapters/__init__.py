@@ -14,7 +14,7 @@ from .base import ModelAdapter
 
 _REGISTRY: Dict[str, str] = {
     "scgpt": "adapters.scgpt_adapter.ScGPTAdapter",
-    # "geneformer": "adapters.geneformer_adapter.GeneformerAdapter",  # 다음 모델 추가 예시
+    "geneformer": "adapters.geneformer_adapter.GeneformerAdapter",
 }
 
 

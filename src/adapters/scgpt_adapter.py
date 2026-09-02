@@ -432,6 +432,21 @@ class ScGPTAdapter(ModelAdapter):
         return model
 
     # ------------------------------------------------------------------
+    # fine-tuned 모델 저장/불러오기 (재사용 경로에서 run.py가 호출)
+    # ------------------------------------------------------------------
+    def save_finetuned_model(self, model, path) -> None:
+        """scGPT는 fine-tune 결과가 단일 state_dict라 그대로 torch.save."""
+        torch.save(model.state_dict(), path)
+
+    def load_finetuned_model(self, model, path, device):
+        """load_model()이 반환한 model(사전학습 가중치 로드까지 끝난 상태)에
+        저장된 fine-tuned state_dict를 얹어서 predict()에 바로 넘길 수 있게 한다."""
+        state_dict = torch.load(path, map_location=device)
+        model.load_state_dict(state_dict)
+        model.to(device)
+        return model
+
+    # ------------------------------------------------------------------
     # 예측
     # ------------------------------------------------------------------
     def predict(self, model, adata, prepared_inputs, id2type: dict, cfg: dict, device):

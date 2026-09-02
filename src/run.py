@@ -82,27 +82,28 @@ def _run_finetune_step(adapter, model, prepared, cfg, device, output_dir):
     - cfg에 finetuned_model_path가 지정돼 있고 그 경로가 존재하면: 재학습을 완전히
       건너뛰고 저장된 가중치를 그대로 불러온다 (매 predict마다 처음부터 fine-tune해야
       했던 문제를 해결하기 위한 재사용 경로).
-    - 아니면: adapter.finetune()으로 새로 학습하고, 결과 가중치를
-      output_dir/finetuned_model.pt에 저장해 다음 실행에서 재사용할 수 있게 한다.
+    - 아니면: adapter.finetune()으로 새로 학습하고, 결과를
+      output_dir/<adapter.finetuned_model_name>에 저장해 다음 실행에서 재사용할 수
+      있게 한다.
 
-    상태 dict만 저장/로드하므로 이 함수는 scgpt를 비롯한 모델별 라이브러리를
-    전혀 import하지 않는다 (run.py의 설계 원칙 유지).
+    저장/불러오기 방식(단일 파일 state_dict인지, 체크포인트 디렉터리인지 등)은
+    adapter.save_finetuned_model()/load_finetuned_model()이 전적으로 결정한다 —
+    이 함수는 그 형태를 몰라도 되므로 scgpt를 비롯한 모델별 라이브러리를 전혀
+    import하지 않는다 (run.py의 설계 원칙 유지).
     """
     finetuned_model_path = cfg.get("finetuned_model_path")
 
     if finetuned_model_path:
         _step_banner(8, "Fine-tuning (저장된 가중치 재사용)")
-        state_dict = torch.load(finetuned_model_path, map_location=device)
-        model.load_state_dict(state_dict)
-        model.to(device)
+        model = adapter.load_finetuned_model(model, finetuned_model_path, device)
         _step_done(f"재학습 건너뜀 — 기존 fine-tuned 가중치 재사용: {finetuned_model_path}")
         return model
 
     _step_banner(8, "Fine-tuning")
     model = adapter.finetune(model, prepared, cfg, device)
     output_dir.mkdir(parents=True, exist_ok=True)
-    finetuned_path = output_dir / "finetuned_model.pt"
-    torch.save(model.state_dict(), finetuned_path)
+    finetuned_path = output_dir / adapter.finetuned_model_name
+    adapter.save_finetuned_model(model, finetuned_path)
     _step_done(
         f"fine-tuning 완료 (best validation epoch 가중치 적용), 저장: {finetuned_path.name} "
         f"— 다음 실행에서 finetuned_model_path: {finetuned_path} 로 재사용 가능"
