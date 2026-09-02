@@ -26,6 +26,7 @@ from adapters import get_adapter
 from pipeline.config import ConfigError, load_config, validate_config
 from pipeline.data_io import DataValidationError, validate_h5ad
 from pipeline.report import (
+    flag_low_confidence,
     save_environment_report,
     save_metrics,
     save_predictions,
@@ -42,7 +43,8 @@ STEP_DESCRIPTIONS = {
     5: "정규화, log1p, binning 등 모델 입력 형식으로 전처리합니다.",
     6: "토큰화 후 학습/검증 DataLoader를 구성합니다.",
     7: "사전학습 가중치를 로드합니다.",
-    8: "Reference로 classification head를 fine-tune합니다.",
+    8: "Reference로 classification head를 fine-tune합니다 "
+       "(finetuned_model_path가 지정되면 재학습 없이 그 가중치를 재사용합니다).",
     9: "Fine-tune된 모델로 query 세포의 cell type을 예측합니다.",
     10: "표준 output 구조로 결과를 저장합니다.",
 }
@@ -73,9 +75,47 @@ def _step_done(msg: str):
     console.print(f"  [green]✓[/green] {msg}")
 
 
+def _run_finetune_step(adapter, model, prepared, cfg, device, output_dir):
+    """
+    Step 8: fine-tune 실행부.
+
+    - cfg에 finetuned_model_path가 지정돼 있고 그 경로가 존재하면: 재학습을 완전히
+      건너뛰고 저장된 가중치를 그대로 불러온다 (매 predict마다 처음부터 fine-tune해야
+      했던 문제를 해결하기 위한 재사용 경로).
+    - 아니면: adapter.finetune()으로 새로 학습하고, 결과 가중치를
+      output_dir/finetuned_model.pt에 저장해 다음 실행에서 재사용할 수 있게 한다.
+
+    상태 dict만 저장/로드하므로 이 함수는 scgpt를 비롯한 모델별 라이브러리를
+    전혀 import하지 않는다 (run.py의 설계 원칙 유지).
+    """
+    finetuned_model_path = cfg.get("finetuned_model_path")
+
+    if finetuned_model_path:
+        _step_banner(8, "Fine-tuning (저장된 가중치 재사용)")
+        state_dict = torch.load(finetuned_model_path, map_location=device)
+        model.load_state_dict(state_dict)
+        model.to(device)
+        _step_done(f"재학습 건너뜀 — 기존 fine-tuned 가중치 재사용: {finetuned_model_path}")
+        return model
+
+    _step_banner(8, "Fine-tuning")
+    model = adapter.finetune(model, prepared, cfg, device)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    finetuned_path = output_dir / "finetuned_model.pt"
+    torch.save(model.state_dict(), finetuned_path)
+    _step_done(
+        f"fine-tuning 완료 (best validation epoch 가중치 적용), 저장: {finetuned_path.name} "
+        f"— 다음 실행에서 finetuned_model_path: {finetuned_path} 로 재사용 가능"
+    )
+    return model
+
+
 def run_finetune_predict(cfg: dict, adapter, device) -> None:
     """지금 유일하게 구현된 mode. embed/train_head는 pipeline/config.py에서 이미
     '아직 구현 안 됨'으로 막혀 있으므로 여기 도달하는 시점엔 항상 이 mode다."""
+
+    output_dir = Path(cfg["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     _step_banner(3, "데이터 로드")
     logging.getLogger("adapters.scgpt_adapter").setLevel(logging.INFO)
@@ -98,27 +138,32 @@ def run_finetune_predict(cfg: dict, adapter, device) -> None:
     model = adapter.load_model(cfg, num_types, device, vocab=vocab, model_configs=model_configs)
     _step_done(f"모델 로드 완료 ({device})")
 
-    _step_banner(8, "Fine-tuning")
-    model = adapter.finetune(model, prepared, cfg, device)
-    _step_done("fine-tuning 완료 (best validation epoch 가중치 적용)")
+    model = _run_finetune_step(adapter, model, prepared, cfg, device, output_dir)
 
     _step_banner(9, "Query 예측")
     adata_result = adapter.predict(model, adata, prepared, id2type, cfg, device)
     _step_done("예측 완료")
 
     _step_banner(10, "결과 저장")
-    output_dir = Path(cfg["output_dir"])
     celltype_col = cfg.get("celltype_col")
+    confidence_summary = flag_low_confidence(adata_result, cfg.get("low_confidence_threshold", 0.5))
     save_predictions(adata_result, output_dir, celltype_col)
-    metrics = save_metrics(adata_result, output_dir, celltype_col)
+    metrics = save_metrics(adata_result, output_dir, celltype_col, confidence_summary)
     save_resolved_config(cfg, output_dir)
     save_environment_report(output_dir)
 
     summary = f"결과 위치: {output_dir}"
-    if metrics:
+    if metrics and "accuracy" in metrics:
         acc = metrics["accuracy"]
         color = "green" if acc >= 0.7 else ("yellow" if acc >= 0.5 else "red")
         summary += f"\n[bold {color}]accuracy = {acc:.2%}[/bold {color}]  ({metrics['correct']}/{metrics['total']})"
+    if metrics and "low_confidence_ratio" in metrics:
+        lc_ratio = metrics["low_confidence_ratio"]
+        lc_color = "red" if lc_ratio >= 0.3 else ("yellow" if lc_ratio >= 0.1 else "green")
+        summary += (
+            f"\n[bold {lc_color}]신뢰도 낮은 예측(<{metrics['low_confidence_threshold']:.0%}) = {lc_ratio:.1%}[/bold {lc_color}]"
+            f"  ({metrics['low_confidence_count']}/{metrics['low_confidence_total']}, predictions.csv의 low_confidence 컬럼 참고)"
+        )
     console.print(Panel(f"[bold green]완료![/bold green]\n{summary}", border_style="green"))
 
 

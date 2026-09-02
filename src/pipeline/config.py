@@ -52,7 +52,10 @@ def validate_config(
     실패 시 Python traceback이 아니라 ConfigError(사용자 메시지)를 던진다.
 
     adapter_required_keys: 이 모델(adapter)이 config에서 필수로 요구하는 키 목록
-    adapter_path_keys:     그중에서 실제 파일/디렉토리 경로로 존재해야 하는 키 목록
+    adapter_path_keys:     그중에서 실제 파일/디렉토리 경로로 존재해야 하는 키 목록.
+                            여기 있는 키라도 config에 값이 없거나 null/빈 문자열이면
+                            "선택 항목이라 안 씀"으로 보고 건너뛴다 (필수 여부는
+                            adapter_required_keys가 따로 결정).
     """
     adapter_required_keys = adapter_required_keys or []
     adapter_path_keys = adapter_path_keys or []
@@ -96,9 +99,9 @@ def validate_config(
                 f"config.yaml에 '{key}: <값>' 을 추가해주세요."
             )
 
-    # 3) 경로로 존재해야 하는 키
+    # 3) 경로로 존재해야 하는 키 (값이 비어있으면 "선택 항목 미사용"으로 보고 건너뜀)
     for key in adapter_path_keys:
-        if key not in cfg:
+        if key not in cfg or cfg[key] in (None, ""):
             continue
         p = Path(cfg[key])
         ok = p.exists()

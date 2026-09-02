@@ -1,14 +1,18 @@
 """
-pipeline/config.py, pipeline/data_io.py를 scGPT/torch 없이 검증.
-python3 tests/test_pipeline.py 로 실행.
+pipeline/config.py, pipeline/data_io.py, pipeline/report.py의 label-optional
+부분을 scGPT/torch 없이 검증. python3 tests/test_pipeline.py 로 실행.
 """
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import pandas as pd
+
 from pipeline.config import ConfigError, validate_config
 from pipeline.data_io import DataValidationError, validate_h5ad
+from pipeline.report import flag_low_confidence, save_metrics
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -102,5 +106,82 @@ expect_fail(
     lambda: validate_h5ad("/no/such/file.h5ad", "Reference", celltype_col="celltype"),
     DataValidationError, "존재하지 않는 h5ad 경로",
 )
+
+# ---------------------------------------------------------------------
+# finetuned_model_path (모델 재사용) 관련 config validation
+section("9. config validation - finetuned_model_path 미지정(null)은 선택 항목이라 통과")
+cfg_no_reuse = dict(good_cfg, finetuned_model_path=None)
+expect_pass(
+    lambda: validate_config(cfg_no_reuse, adapter_required_keys=["reference_path", "query_path", "model_dir"],
+                             adapter_path_keys=["reference_path", "query_path", "model_dir", "finetuned_model_path"]),
+    "finetuned_model_path: null (선택 항목, 값 없으면 검증을 건너뜀)",
+)
+
+section("10. config validation - finetuned_model_path를 지정했는데 파일이 없으면 실패")
+cfg_bad_reuse = dict(good_cfg, finetuned_model_path="/no/such/finetuned_model.pt")
+expect_fail(
+    lambda: validate_config(cfg_bad_reuse, adapter_required_keys=["reference_path", "query_path", "model_dir"],
+                             adapter_path_keys=["reference_path", "query_path", "model_dir", "finetuned_model_path"]),
+    ConfigError, "finetuned_model_path가 지정됐지만 파일이 존재하지 않음",
+)
+
+# ---------------------------------------------------------------------
+# 예측 신뢰도 경고 (low_confidence) 관련
+section("11. 예측 신뢰도 플래그 - low_confidence 컬럼/통계 계산")
+
+
+class _FakeAdata:
+    """flag_low_confidence/save_metrics는 adata.obs(pandas DataFrame)만 사용하므로,
+    실제 AnnData 없이 이 정도 stub으로 충분히 검증 가능."""
+
+    def __init__(self, obs):
+        self.obs = obs
+
+
+def _check_confidence_summary():
+    fake = _FakeAdata(pd.DataFrame({"pred_score": [0.9, 0.4, 0.55, 0.2]}))
+    summary = flag_low_confidence(fake, 0.5)
+    expected = {
+        "low_confidence_threshold": 0.5,
+        "low_confidence_count": 2,
+        "low_confidence_total": 4,
+        "low_confidence_ratio": 0.5,
+    }
+    assert summary == expected, f"summary={summary}"
+    assert list(fake.obs["low_confidence"]) == [False, True, False, True], list(fake.obs["low_confidence"])
+
+
+expect_pass(_check_confidence_summary, "threshold=0.5일 때 4개 중 2개(0.4, 0.2)가 low_confidence로 표시됨")
+
+
+def _check_confidence_disabled():
+    fake = _FakeAdata(pd.DataFrame({"pred_score": [0.9, 0.1]}))
+    summary = flag_low_confidence(fake, None)
+    assert summary is None, f"summary={summary}"
+    assert "low_confidence" not in fake.obs.columns
+
+
+expect_pass(_check_confidence_disabled, "threshold=None이면 비활성화 (None 반환, obs 변경 없음)")
+
+section("12. metrics.json - label 없이도 confidence 통계만으로 저장됨 (예측 전용 실행)")
+
+
+def _check_metrics_confidence_only():
+    fake = _FakeAdata(pd.DataFrame({
+        "predictions": ["T_cell", "B_cell"],
+        "pred_score": [0.9, 0.3],
+    }))
+    confidence_summary = flag_low_confidence(fake, 0.5)
+    with tempfile.TemporaryDirectory() as tmp:
+        out_dir = Path(tmp)
+        metrics = save_metrics(fake, out_dir, celltype_col=None, confidence_summary=confidence_summary)
+        assert metrics is not None
+        assert "accuracy" not in metrics, "label이 없으면 accuracy는 계산되지 않아야 함"
+        assert metrics["low_confidence_count"] == 1
+        assert (out_dir / "metrics.json").exists()
+        assert not (out_dir / "per_class_metrics.csv").exists(), "label 없으면 per-class 파일도 안 만들어야 함"
+
+
+expect_pass(_check_metrics_confidence_only, "label 없어도 low_confidence 통계는 metrics.json에 저장됨")
 
 print("\n모든 테스트 완료.")

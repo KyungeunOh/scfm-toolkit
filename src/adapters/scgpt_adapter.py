@@ -42,7 +42,9 @@ class ScGPTAdapter(ModelAdapter):
         "reference_path", "query_path", "model_dir",
         "celltype_col", "n_bins", "max_seq_len", "batch_size", "epochs",
     ]
-    path_config_keys = ["reference_path", "query_path", "model_dir"]
+    path_config_keys = ["reference_path", "query_path", "model_dir", "finetuned_model_path"]
+    #: finetuned_model_path는 선택 항목 (값이 비어있으면 pipeline/config.py가 건너뜀).
+    #: 지정하면 run.py가 fine-tuning을 건너뛰고 이 가중치를 바로 불러와 predict한다.
 
     # ------------------------------------------------------------------
     # vocab (h5ad validation에서 gene overlap 계산용, 가벼운 로드)

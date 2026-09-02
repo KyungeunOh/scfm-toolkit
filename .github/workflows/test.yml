@@ -1,0 +1,38 @@
+name: pipeline tests
+
+# torch/scGPT 없이도 검증 가능한 pipeline 레이어(config validation, h5ad validation,
+# 모델 재사용/신뢰도 로직)만 자동으로 돌린다. scGPT/torch 전체 통합 테스트는
+# GPU + 대용량 사전학습 가중치가 필요해 CI 범위 밖 (tests/test_pipeline.py 주석 참고).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install lightweight test dependencies
+        run: |
+          pip install --no-cache-dir anndata pandas pyyaml rich scikit-learn
+
+      - name: Generate synthetic fixtures
+        run: python3 tests/make_synthetic_data.py
+
+      - name: Run pipeline tests
+        run: python3 tests/test_pipeline.py | tee test_output.txt
+
+      - name: Fail if any test reported FAIL
+        run: |
+          if grep -q "❌ FAIL" test_output.txt; then
+            echo "One or more tests failed — see log above."
+            exit 1
+          fi
+          echo "All tests passed."

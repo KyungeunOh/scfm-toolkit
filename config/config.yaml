@@ -17,6 +17,12 @@ query_path:     /workspace/data/filtered_ms_adata.h5ad
 model_dir:      /workspace/model
 output_dir:     /workspace/outputs
 
+# --- Fine-tuned 모델 재사용 (선택) ---
+# 이 pipeline은 매번 실행이 끝나면 fine-tune된 가중치를 output_dir/finetuned_model.pt로
+# 자동 저장합니다. 같은 reference로 다시 predict만 하고 싶다면(재학습 없이) 여기에
+# 그 파일 경로를 지정하세요. 비워두면(기본값 null) 항상 새로 fine-tune합니다.
+finetuned_model_path: null
+
 # --- 데이터 설정 ---
 celltype_col: celltype
 source_celltype_col: "Factor Value[inferred cell type - authors labels]"
@@ -39,6 +45,13 @@ train_ratio: 0.9
 mask_ratio: 0.0
 include_zero_gene: false
 amp: true
+
+# --- 예측 신뢰도 경고 ---
+# 예측 확률(softmax 최대값)이 이 값보다 낮은 셀은 "불확실"로 표시됩니다
+# (predictions.csv의 low_confidence 컬럼, metrics.json의 low_confidence_ratio).
+# 비전문가가 낮은 신뢰도 예측을 그대로 믿지 않도록 돕는 안전장치입니다.
+# 끄려면 null로 설정하세요.
+low_confidence_threshold: 0.5
 
 # --- 재현성 ---
 seed: 42
