@@ -88,6 +88,35 @@ expect_pass(
     "mode=embed은 이제 정상적으로 실행 가능해야 함",
 )
 
+section("4-2. config validation - mode: integration (zero-shot batch 통합, 구현됨)")
+# ScGPTAdapter.extra_required_config_keys("integration")이 반환하는 것과 동일한 키
+# (data_path, batch_key)를 finetune_predict용 키에 추가해서 검증 - run.py의
+# `adapter.required_config_keys + adapter.extra_required_config_keys(mode)` 조합
+# 로직 자체를 흉내낸다 (실제 ScGPTAdapter는 torch를 import해서 이 개발 환경에서는
+# 인스턴스화할 수 없음 - adapters/base.py, adapters/scgpt_adapter.py의 메서드
+# 시그니처는 별도로 py_compile + ABC 스텁으로 검증).
+integration_cfg = dict(
+    good_cfg, mode="integration",
+    data_path=str(FIXTURES / "reference.h5ad"),
+    batch_key="sample",
+)
+integration_required = ["reference_path", "query_path", "model_dir", "data_path", "batch_key"]
+integration_paths = ["reference_path", "query_path", "model_dir", "data_path"]
+expect_pass(
+    lambda: validate_config(integration_cfg, adapter_required_keys=integration_required,
+                             adapter_path_keys=integration_paths),
+    "mode=integration은 정상적으로 실행 가능해야 함",
+)
+
+section("4-3. config validation - mode: integration인데 batch_key가 없음")
+integration_cfg_missing_batch_key = dict(good_cfg, mode="integration", data_path=str(FIXTURES / "reference.h5ad"))
+expect_fail(
+    lambda: validate_config(integration_cfg_missing_batch_key,
+                             adapter_required_keys=integration_required,
+                             adapter_path_keys=integration_paths),
+    ConfigError, "mode=integration인데 batch_key가 config.yaml에 없음",
+)
+
 # ---------------------------------------------------------------------
 section("5. h5ad validation - 정상 케이스 (label column 있음, vocab 매칭 OK)")
 vocab_genes = {f"GENE{i}" for i in range(150)}  # make_synthetic_data.py와 동일 로직

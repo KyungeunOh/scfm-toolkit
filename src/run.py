@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from adapters import get_adapter
 from pipeline.config import ConfigError, load_config, validate_config
 from pipeline.data_io import DataValidationError, load_h5ad_full, validate_h5ad
+from pipeline.integration import evaluate_integration, save_integration_metrics, save_integration_umap
 from pipeline.reference_mapping import knn_label_transfer
 from pipeline.report import (
     flag_low_confidence,
@@ -61,6 +62,15 @@ STEP_DESCRIPTIONS = {
            "(fine-tuning 없음 - zero-shot).",
         4: "임베딩 공간에서 k-NN 다수결로 reference의 label을 query에 전파합니다.",
         5: "표준 output 구조로 결과를 저장합니다.",
+    },
+    "integration": {
+        1: "config.yaml을 검증합니다.",
+        2: "h5ad 입력을 검증합니다 (셀 수, celltype_col/batch_key, vocab 매칭률).",
+        3: "highly variable gene을 선택하고, 사전학습 모델로 전체 데이터를 임베딩합니다 "
+           "(fine-tuning 없음 - zero-shot).",
+        4: "임베딩 공간에서 UMAP을 그리고, scib로 batch 통합 품질 지표를 계산합니다.",
+        5: "비교 기준선(HVG+PCA, fine-tuning도 scGPT도 없는 단순 방법)을 같은 방식으로 계산합니다.",
+        6: "표준 output 구조로 결과를 저장합니다.",
     },
 }
 
@@ -254,6 +264,94 @@ def run_embed(cfg: dict, adapter, device) -> None:
     console.print(Panel(f"[bold green]완료![/bold green]\n{summary}", border_style="green"))
 
 
+def run_integration(cfg: dict, adapter, device) -> None:
+    """
+    mode: integration - fine-tuning 없이 사전학습 모델의 임베딩만으로 여러 batch가
+    섞인 데이터에서 batch effect는 얼마나 제거되고 cell type은 잘 구분되는지 평가한다
+    (scGPT tutorials/zero-shot/Tutorial_ZeroShot_Integration.ipynb 방식 - GitHub 원본을
+    직접 fetch해서 전처리/embed_data 호출/scib 지표 계산까지 한 줄씩 대조 확인함).
+
+    mode: embed와 마찬가지로 adapter.embed()를 그대로 재사용한다(self-contained라 새
+    adapter 코드가 필요 없음). HVG 선택(seurat_v3 - adata.X가 원본 raw count라고
+    전제, scikit-misc 필요)과 UMAP/scib 지표 계산은 pipeline/integration.py의 모델
+    무관 로직이다.
+
+    scGPT zero-shot 임베딩뿐 아니라 원본 튜토리얼처럼 HVG+PCA 베이스라인도 같은
+    방식으로 계산해서 같이 저장한다 - "그냥 믿어라"가 아니라 scGPT 임베딩이 단순
+    PCA보다 실제로 나은지 바로 비교할 수 있게 하기 위함.
+    """
+    output_dir = Path(cfg["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    celltype_col = cfg.get("celltype_col")
+    batch_key = cfg["batch_key"]
+    n_hvg = cfg.get("n_hvg", 3000)
+
+    _step_banner("integration", 3, "HVG 선택 및 임베딩 추출")
+    import scanpy as sc
+
+    adata = load_h5ad_full(cfg["data_path"])
+    if not celltype_col or celltype_col not in adata.obs.columns:
+        raise ConfigError(
+            f"mode: integration은 data_path h5ad에 celltype_col('{celltype_col}')이 "
+            f"있어야 통합 품질(NMI/ARI/ASW)을 평가할 수 있습니다."
+        )
+    # 정답 label이 없는 셀(NaN 등)은 원본 튜토리얼과 동일하게 제외.
+    valid_mask = adata.obs[celltype_col].astype("category").cat.codes.values >= 0
+    adata = adata[valid_mask].copy()
+
+    org_adata = adata.copy()  # HVG로 서브셋하기 전 원본 - 아래 HVG+PCA 베이스라인용
+
+    sc.pp.highly_variable_genes(adata, n_top_genes=n_hvg, flavor="seurat_v3")
+    adata = adata[:, adata.var["highly_variable"]].copy()
+
+    embeddings = adapter.embed(adata, cfg, device)
+    adata.obsm["X_scGPT"] = embeddings
+    _step_done(
+        f"{adata.n_obs}개 세포, HVG {adata.n_vars}개로 scGPT zero-shot 임베딩 완료 "
+        f"(embed_dim={embeddings.shape[1]})"
+    )
+
+    _step_banner("integration", 4, "UMAP + scib 통합 품질 지표 (scGPT zero-shot)")
+    scgpt_umap_path = save_integration_umap(
+        adata, batch_key, celltype_col, output_dir / "integration_umap_scgpt.png",
+        embed_key="X_scGPT", title_prefix="scGPT zero-shot",
+    )
+    scgpt_metrics = evaluate_integration(adata, batch_key, celltype_col, embed_key="X_scGPT")
+    _step_done(f"scib 지표 계산 완료, UMAP 저장: {scgpt_umap_path.name}")
+
+    _step_banner("integration", 5, "비교 기준선 계산 (HVG+PCA, fine-tuning/scGPT 없음)")
+    baseline_adata = org_adata
+    sc.pp.highly_variable_genes(baseline_adata, n_top_genes=n_hvg, flavor="seurat_v3")
+    baseline_adata = baseline_adata[:, baseline_adata.var["highly_variable"]].copy()
+    sc.pp.pca(baseline_adata, n_comps=40)
+    baseline_umap_path = save_integration_umap(
+        baseline_adata, batch_key, celltype_col, output_dir / "integration_umap_hvg_pca.png",
+        embed_key="X_pca", title_prefix="HVG+PCA baseline",
+    )
+    baseline_metrics = evaluate_integration(baseline_adata, batch_key, celltype_col, embed_key="X_pca")
+    _step_done(f"baseline 계산 완료, UMAP 저장: {baseline_umap_path.name}")
+
+    _step_banner("integration", 6, "결과 저장")
+    metrics = {"scgpt_zero_shot": scgpt_metrics, "hvg_pca_baseline": baseline_metrics}
+    metrics_path = save_integration_metrics(metrics, output_dir)
+    save_resolved_config(cfg, output_dir)
+    save_environment_report(output_dir)
+
+    summary = f"결과 위치: {output_dir}\n지표: {metrics_path.name}"
+    if "avg_bio" in scgpt_metrics and "avg_batch" in scgpt_metrics:
+        summary += (
+            f"\n[bold]scGPT zero-shot[/bold]: avg_bio={scgpt_metrics['avg_bio']:.3f} "
+            f"(높을수록 cell type 분리 잘 됨), avg_batch={scgpt_metrics['avg_batch']:.3f} (높을수록 batch가 잘 섞임)"
+        )
+    if "avg_bio" in baseline_metrics and "avg_batch" in baseline_metrics:
+        summary += (
+            f"\n[bold]HVG+PCA baseline[/bold]: avg_bio={baseline_metrics['avg_bio']:.3f}, "
+            f"avg_batch={baseline_metrics['avg_batch']:.3f}"
+        )
+    console.print(Panel(f"[bold green]완료![/bold green]\n{summary}", border_style="green"))
+
+
 def main():
     setup_logging()
 
@@ -269,15 +367,32 @@ def main():
 
         mode = cfg["mode"]
         _step_banner(mode, 1, "config 검증")
-        validate_config(cfg, adapter.required_config_keys, adapter.path_config_keys)
+        required_keys = adapter.required_config_keys + adapter.extra_required_config_keys(mode)
+        path_keys = adapter.path_config_keys + adapter.extra_path_config_keys(mode)
+        validate_config(cfg, required_keys, path_keys)
         _step_done(f"model={cfg['model']}, mode={mode}")
 
         _step_banner(mode, 2, "h5ad 입력 검증")
         vocab_genes = adapter.load_vocab_genes(cfg)
-        validate_h5ad(cfg["reference_path"], "Reference", cfg.get("celltype_col"),
-                      cfg.get("source_celltype_col"), vocab_genes)
-        validate_h5ad(cfg["query_path"], "Query", cfg.get("celltype_col"),
-                      cfg.get("source_celltype_col"), vocab_genes)
+        if mode in ("finetune_predict", "embed"):
+            # 이 두 mode는 reference/query 한 쌍을 쓴다.
+            validate_h5ad(cfg["reference_path"], "Reference", cfg.get("celltype_col"),
+                          cfg.get("source_celltype_col"), vocab_genes)
+            validate_h5ad(cfg["query_path"], "Query", cfg.get("celltype_col"),
+                          cfg.get("source_celltype_col"), vocab_genes)
+        elif mode == "integration":
+            # integration은 reference/query 구분이 없는 h5ad 파일 하나(여러 batch가
+            # 섞여 있음)를 쓴다 - batch_key는 vocab 매칭과 무관한 obs 컬럼이라
+            # validate_h5ad()의 vocab 검증과는 별개로 존재 여부만 확인한다.
+            validate_h5ad(cfg["data_path"], "Data", cfg.get("celltype_col"), None, vocab_genes)
+            batch_key = cfg.get("batch_key")
+            import anndata as ad
+            data_obs_columns = ad.read_h5ad(cfg["data_path"], backed="r").obs.columns
+            if batch_key not in data_obs_columns:
+                raise ConfigError(
+                    f"mode: integration은 batch_key('{batch_key}')가 data_path h5ad의 obs 컬럼에 "
+                    f"있어야 합니다. 있는 컬럼: {list(data_obs_columns)[:12]}"
+                )
         _step_done("입력 검증 통과")
 
     except (ConfigError, DataValidationError) as e:
@@ -295,6 +410,8 @@ def main():
         run_finetune_predict(cfg, adapter, device)
     elif mode == "embed":
         run_embed(cfg, adapter, device)
+    elif mode == "integration":
+        run_integration(cfg, adapter, device)
     else:
         # pipeline/config.py의 IMPLEMENTED_MODES 검증을 통과했다면 여기 도달할 수 없다 -
         # 도달했다면 IMPLEMENTED_MODES에는 추가했는데 여기 dispatch를 깜빡한 버그.

@@ -3,7 +3,8 @@
 여러 single-cell foundation model(scFM)을 비전문가도 h5ad 파일과 `config.yaml`만으로
 쉽게 실행할 수 있게 하는 재현 가능한 toolkit. annotation task 기준으로 scGPT, Geneformer
 두 모델을 지원하고(`config.yaml`의 `model:` 값만 바꾸면 됨), scGPT는 fine-tuning 없는
-reference mapping(`mode: embed`)도 지원한다.
+zero-shot task도 두 가지 지원한다: reference mapping(`mode: embed`), batch 통합 품질
+평가(`mode: integration`).
 
 ## 구조
 
@@ -18,6 +19,8 @@ src/
     data_io.py             h5ad validation + 전체 로드 (cell/gene 수, label column, vocab 매칭률)
     reference_mapping.py    mode: embed에서 쓰는 k-NN 기반 label 전파 (모델 무관 - 임베딩만
                             주어지면 어떤 adapter의 embed() 결과에도 재사용 가능)
+    integration.py           mode: integration에서 쓰는 batch 통합 품질 평가 (UMAP 저장 +
+                            scib 기반 정량 지표 - 마찬가지로 모델 무관)
     report.py               표준 output 저장 (predictions, metrics, 예측 신뢰도 경고,
                             confusion matrix, resolved_config, environment report)
   adapters/               모델별 구현 (scGPT/Geneformer 세부사항은 전부 여기에만 있음)
@@ -68,6 +71,45 @@ finetune_predict와 동일한 표준 output 구조(`predictions.csv`, `metrics.j
 분리하는 작업이 추가로 필요하다 (로드맵 참고). scGPT만 `embed()`를 구현했고
 (`src/adapters/scgpt_adapter.py`, 내부적으로 scGPT의 `scg.tasks.embed_data()`를 그대로
 사용), Geneformer는 아직 `mode: embed`를 지원하지 않는다(명확한 에러로 안내됨).
+
+## Zero-shot Batch Integration (mode: integration)
+
+fine-tuning 없이, 사전학습 모델 임베딩만으로 여러 batch(샘플)의 데이터를 통합했을 때
+batch 효과는 얼마나 제거되고 cell type은 잘 구분되는지 평가한다 (scGPT
+`tutorials/zero-shot/Tutorial_ZeroShot_Integration.ipynb`와 동일한 방식 - GitHub 원본
+코드를 직접 대조해서 구현). `config.yaml`에서 `mode: integration`으로 지정하고,
+`data_path`(여러 batch가 섞인 h5ad 파일 하나), `batch_key`(배치/샘플 구분 obs 컬럼),
+`n_hvg`(기본 3000)를 설정한다. reference/query 구분이 없다는 점이 다른 두 mode와
+다르다.
+
+내부적으로 highly variable gene을 선택한 뒤(`scanpy` `flavor=seurat_v3` - raw count
+데이터 전제) scGPT로 zero-shot 임베딩을 뽑고, **비교 기준선으로 fine-tuning도 scGPT도
+쓰지 않는 HVG+PCA 방식도 똑같이 계산**해서 같이 저장한다 - scGPT 임베딩이 단순 PCA보다
+실제로 나은지 바로 비교하기 위함이다. 결과로 다음을 `output_dir`에 저장한다:
+
+| 파일 | 내용 |
+|---|---|
+| `integration_umap_scgpt.png` | scGPT zero-shot 임베딩 UMAP (cell type/batch 두 패널) |
+| `integration_umap_hvg_pca.png` | HVG+PCA 베이스라인 UMAP (같은 두 패널) |
+| `integration_metrics.json` | `scgpt_zero_shot`/`hvg_pca_baseline` 각각의 scib 지표 (NMI/ARI/ASW/graph_conn/PCR, avg_bio, avg_batch) |
+| `resolved_config.yaml`, `environment.json` | 다른 mode와 동일 |
+
+**현재 알려진 제약**:
+- `batch_key`는 데이터마다 실제 obs 컬럼 이름이 다르므로 `config.yaml`의 예시값을
+  그대로 쓰면 안 되고, 실행 전에 실제 데이터를 확인해야 한다 (`config.yaml`의 해당
+  절 주석에 확인 명령 포함).
+- `data_path`의 `adata.X`가 정규화/log1p된 상태면 `seurat_v3` HVG 선택 결과가
+  이상해질 수 있다 (raw count 전제).
+- `mode: integration`을 위해 `config.yaml`에 필요한 키(`data_path`, `batch_key`)를
+  추가로 검증하지만, 다른 mode용 키(`reference_path`, `n_bins` 등)도 여전히 형식상
+  필수로 요구된다 (이 프로젝트는 `config.yaml` 하나를 여러 mode가 공유하는 사용
+  패턴이라 실제로는 문제되지 않음 - 아래 로드맵 참고).
+- `scib==1.1.7`이 `requirements.txt`에 이미 있고 이 값으로 빌드된 Docker 이미지가
+  annotation/embed 두 mode 모두 GPU에서 이미 실행 검증됐으므로 별도 설치는 필요
+  없을 것으로 강하게 추정되지만, `mode: integration` 자체(HVG 선택 → embed →
+  scib 지표 계산 전체 흐름)는 아직 GPU에서 실제로 돌려보지 못했다 (아래 로드맵 참고).
+
+## 예측 신뢰도 경고
 
 ## 예측 신뢰도 경고
 
@@ -163,10 +205,21 @@ requirements.txt 하단 "Geneformer 어댑터 전용" 구간)을 설치한다 �
       end-to-end 실행 검증
 - [x] `mode: embed` 구현 (scGPT reference mapping, `Tutorial_Reference_Mapping.ipynb` 기반) —
       위 "Reference Mapping (mode: embed)" 절의 알려진 제약(query도 label 필요) 참고
-- [ ] `mode: embed`를 GPU 환경에서 실제 h5ad로 end-to-end 실행 검증 (아직 미검증 - scgpt
-      패키지가 없는 개발 환경이라 py_compile/synthetic 테스트로만 확인함)
-- [ ] mode별로 다른 config 필수 키 검증 (지금은 embed에서도 finetune_predict용 키인
-      n_bins/max_seq_len/epochs 등이 형식상 필요함 - 실제로는 안 쓰임)
+- [x] `mode: embed`를 GPU 환경에서 실제 h5ad로 end-to-end 실행 검증 — gnode01(RTX 3090)에서
+      실행 완료, accuracy 73.89%(9951/13468). fine-tuned annotation(87.6%)보다 낮은 건
+      zero-shot의 정상적인 트레이드오프 (같은 데이터로 실측 비교함, 버그 아님 — 공식
+      튜토리얼 코드와 한 줄씩 대조해서 구현이 원본과 일치함도 확인)
+- [x] 세 번째 task 추가: Zero-shot Batch Integration (`mode: integration`, scGPT
+      `Tutorial_ZeroShot_Integration.ipynb` 기반, scib 지표 + HVG/PCA 베이스라인 비교) —
+      코드 완료, GPU 실행 검증 전 (위 "Zero-shot Batch Integration" 절 참고)
+- [ ] `mode: integration`을 GPU 환경에서 실제 h5ad로 end-to-end 실행 검증 (scib/scanpy가
+      없는 개발 환경이라 py_compile + ABC 스텁 검증까지만 함 - embed_data() 관련 로직과
+      마찬가지로 실제 실행은 아직 못 해봄)
+- [x] (부분) mode별로 다른 config 필수 키 검증 — `ModelAdapter.extra_required_config_keys(mode)`/
+      `extra_path_config_keys(mode)` 훅을 추가해서 `mode: integration`의 `data_path`/`batch_key`는
+      제대로 필수 항목으로 검증됨. 다만 기존 `required_config_keys`(mode 무관 공통)는 그대로라,
+      `embed`/`integration`에서도 여전히 `n_bins`/`max_seq_len`/`epochs` 등 무관한 키가 형식상
+      필수로 남아있음 (완전한 mode별 분리는 후속 작업)
 - [ ] query에 label이 없어도 되는 순수 매핑 경로 지원 (위 "현재 알려진 제약" 참고)
 - [ ] `mode: train_head` 구현
 - [ ] 새 task(GRN, Integration, Multiomics, Perturbation 등) 지원은 위 모델 축 검증 이후 — ModelAdapter/run.py를 task에 무관하게 다시 일반화해야 함

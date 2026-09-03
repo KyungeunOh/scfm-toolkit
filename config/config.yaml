@@ -9,10 +9,11 @@
 #        "Geneformer 지원 (검증 필요)" 절을 먼저 확인할 것. 모델이 다르면 아래 데이터/
 #        전처리/학습 파라미터 중 일부(특히 data_is_raw, n_bins 등 scGPT 전용 항목)는
 #        의미가 없거나 다르게 해석될 수 있음.
-# mode:  finetune_predict(fine-tuning 후 예측) 또는 embed(reference mapping,
-#        fine-tuning 없는 zero-shot). train_head는 config 구조상 자리만 있고
-#        아직 미구현. mode: embed일 때는 아래 "학습/추론 파라미터" 대부분이
-#        무시되고 knn_k/gene_col만 쓰인다 (아래 참고).
+# mode:  finetune_predict(fine-tuning 후 예측) / embed(reference mapping,
+#        fine-tuning 없는 zero-shot) / integration(zero-shot batch 통합 품질 평가,
+#        아래 참고). train_head는 config 구조상 자리만 있고 아직 미구현.
+#        mode: embed/integration일 때는 아래 "학습/추론 파라미터" 대부분이
+#        무시된다 (embed는 knn_k/gene_col만, integration은 n_hvg/gene_col만 씀).
 model: scgpt
 mode: finetune_predict
 
@@ -60,6 +61,22 @@ amp: true
 # query에도 동일한 celltype_col을 요구합니다 - 순수 미지 데이터 매핑은 README 참고).
 knn_k: 10          # 다수결에 참여할 이웃 수
 gene_col: gene_name  # 유전자 이름이 var의 어느 컬럼/index에 있는지 (scGPT embed_data 인자)
+
+# --- mode: integration(zero-shot batch 통합 품질 평가) 전용 - 다른 mode일 때는 무시됨 ---
+# fine-tuning 없이 사전학습 모델 임베딩만으로, 여러 batch(샘플)의 배치 효과가 얼마나
+# 잘 제거되고 cell type은 잘 구분되는지 평가합니다 (scGPT
+# tutorials/zero-shot/Tutorial_ZeroShot_Integration.ipynb 방식 - GitHub 원본 코드를
+# 직접 대조해서 구현). reference/query 구분이 없고, data_path 파일 하나에 celltype_col과
+# batch_key(배치/샘플 구분 컬럼)가 둘 다 있어야 합니다.
+#
+# 주의 1: batch_key는 데이터마다 실제 컬럼 이름이 다릅니다 - 아래 "sample"은 예시일 뿐이니
+# 실행 전에 반드시 실제 obs 컬럼을 확인하세요. 컨테이너 안에서 아래처럼 확인 가능:
+#   python -c "import anndata as ad; print(ad.read_h5ad('/workspace/data/c_data.h5ad', backed='r').obs.columns.tolist())"
+# 주의 2: HVG 선택(flavor=seurat_v3)은 원본 raw count 데이터를 전제로 합니다. data_path의
+# adata.X가 이미 정규화/log1p된 상태면 HVG 선택 결과가 이상해질 수 있습니다.
+data_path: /workspace/data/c_data.h5ad   # 예시 - 실제로는 여러 batch가 섞인 데이터로 교체 권장
+batch_key: sample   # ← 예시값. 위 확인 명령으로 실제 obs 컬럼명으로 바꿀 것
+n_hvg: 3000          # 통합 전 선택할 highly variable gene 수 (원본 튜토리얼 기본값)
 
 # --- 예측 신뢰도 경고 ---
 # 예측 확률(softmax 최대값)이 이 값보다 낮은 셀은 "불확실"로 표시됩니다

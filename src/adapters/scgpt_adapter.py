@@ -46,6 +46,19 @@ class ScGPTAdapter(ModelAdapter):
     #: finetuned_model_path는 선택 항목 (값이 비어있으면 pipeline/config.py가 건너뜀).
     #: 지정하면 run.py가 fine-tuning을 건너뛰고 이 가중치를 바로 불러와 predict한다.
 
+    def extra_required_config_keys(self, mode: str):
+        """mode: integration은 reference/query 쌍이 아니라 batch_key가 있는
+        h5ad 파일 하나(data_path)를 쓴다 - base.py의 extra_required_config_keys
+        docstring 참고."""
+        if mode == "integration":
+            return ["data_path", "batch_key"]
+        return []
+
+    def extra_path_config_keys(self, mode: str):
+        if mode == "integration":
+            return ["data_path"]
+        return []
+
     # ------------------------------------------------------------------
     # vocab (h5ad validation에서 gene overlap 계산용, 가벼운 로드)
     # ------------------------------------------------------------------

@@ -41,6 +41,31 @@ class ModelAdapter(ABC):
     #: 있다 — 어떤 형태로 저장할지는 전적으로 adapter가 결정한다.
     finetuned_model_name: str = "finetuned_model.pt"
 
+    def extra_required_config_keys(self, mode: str) -> List[str]:
+        """
+        required_config_keys(클래스 속성, mode 무관 공통 필수 키)에 추가로,
+        특정 mode에서만 필요한 키를 선언한다. 기본값은 빈 리스트 - finetune_predict/
+        embed처럼 required_config_keys 하나로 충분한 mode는 override할 필요 없다.
+
+        mode: integration처럼 구조적으로 다른 입력(reference/query 쌍이 아니라
+        batch_key가 있는 파일 하나)이 필요한 mode가 있는 adapter만 override한다
+        (scgpt_adapter.py 참고).
+
+        알려진 한계: required_config_keys 자체는 여전히 mode에 상관없이 전부
+        적용되므로, 예를 들어 mode: integration을 실행할 때도 finetune_predict용
+        키(reference_path, n_bins 등)가 계속 필수로 요구된다. 이 프로젝트는
+        config.yaml 하나를 여러 mode에서 공유해서 쓰는 사용 패턴이라 실제로는
+        문제되지 않지만(필드가 이미 다 채워져 있음), config.yaml을 mode:
+        integration 하나만 위해 새로 만드는 경우라면 불필요한 필드까지 채워야
+        한다 - 더 근본적인 수정(진짜 mode별 필수 키 분리)은 후속 작업으로 남겨둠.
+        """
+        return []
+
+    def extra_path_config_keys(self, mode: str) -> List[str]:
+        """extra_required_config_keys()와 같은 목적, path_config_keys(경로 존재
+        확인 대상) 쪽 확장."""
+        return []
+
     @abstractmethod
     def load_vocab_genes(self, cfg: Dict[str, Any]) -> set:
         """

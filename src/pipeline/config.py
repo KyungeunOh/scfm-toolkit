@@ -21,10 +21,10 @@ console = Console()
 # adapter 쪽에서 required_config_keys()로 선언하게 한다.
 CORE_REQUIRED_KEYS = ["output_dir"]
 
-SUPPORTED_MODES = ["finetune_predict", "embed", "train_head"]
+SUPPORTED_MODES = ["finetune_predict", "embed", "integration", "train_head"]
 #: SUPPORTED_MODES 중 실제로 실행 가능한 것. train_head는 아직 config 구조상
 #: 자리만 있고 미구현 - 여기 없는 mode를 지정하면 "구현 안 됨"으로 명확히 막는다.
-IMPLEMENTED_MODES = ["finetune_predict", "embed"]
+IMPLEMENTED_MODES = ["finetune_predict", "embed", "integration"]
 DEFAULT_MODE = "finetune_predict"
 DEFAULT_MODEL = "scgpt"
 
