@@ -432,6 +432,31 @@ class ScGPTAdapter(ModelAdapter):
         return model
 
     # ------------------------------------------------------------------
+    # 임베딩 추출 (mode: embed / reference mapping에서 사용)
+    # ------------------------------------------------------------------
+    def embed(self, adata, cfg: dict, device):
+        """
+        scGPT의 고수준 유틸리티 scgpt.tasks.embed_data()를 그대로 활용한다 - 이
+        함수가 vocab 매칭, 토큰화, 모델 로딩을 전부 내부에서 처리하므로
+        load_vocab_full/prepare_inputs/load_model을 따로 거칠 필요가 없다
+        (Tutorial_Reference_Mapping.ipynb와 동일한 방식). 입력 adata는 건드리지
+        않고, 임베딩만 (n_cells, embed_dim) numpy 배열로 반환한다.
+        """
+        import scgpt as scg
+
+        gene_col = cfg.get("gene_col", "gene_name")
+        batch_size = cfg.get("eval_batch_size", cfg.get("batch_size", 64))
+
+        embed_adata = scg.tasks.embed_data(
+            adata,
+            Path(cfg["model_dir"]),
+            gene_col=gene_col,
+            batch_size=batch_size,
+            return_new_adata=True,
+        )
+        return np.asarray(embed_adata.X)
+
+    # ------------------------------------------------------------------
     # fine-tuned 모델 저장/불러오기 (재사용 경로에서 run.py가 호출)
     # ------------------------------------------------------------------
     def save_finetuned_model(self, model, path) -> None:

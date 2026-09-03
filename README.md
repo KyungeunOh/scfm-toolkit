@@ -2,7 +2,8 @@
 
 여러 single-cell foundation model(scFM)을 비전문가도 h5ad 파일과 `config.yaml`만으로
 쉽게 실행할 수 있게 하는 재현 가능한 toolkit. annotation task 기준으로 scGPT, Geneformer
-두 모델을 지원한다 (`config.yaml`의 `model:` 값만 바꾸면 됨).
+두 모델을 지원하고(`config.yaml`의 `model:` 값만 바꾸면 됨), scGPT는 fine-tuning 없는
+reference mapping(`mode: embed`)도 지원한다.
 
 ## 구조
 
@@ -14,7 +15,9 @@ src/
                          "어떻게 실행할지"는 모른다 (scgpt import 없음).
   pipeline/               모델에 무관한 공통 로직
     config.py             config.yaml validation (필수 키/경로/mode 체크, 친절한 에러 메시지)
-    data_io.py             h5ad validation (cell/gene 수, label column, vocab 매칭률)
+    data_io.py             h5ad validation + 전체 로드 (cell/gene 수, label column, vocab 매칭률)
+    reference_mapping.py    mode: embed에서 쓰는 k-NN 기반 label 전파 (모델 무관 - 임베딩만
+                            주어지면 어떤 adapter의 embed() 결과에도 재사용 가능)
     report.py               표준 output 저장 (predictions, metrics, 예측 신뢰도 경고,
                             confusion matrix, resolved_config, environment report)
   adapters/               모델별 구현 (scGPT/Geneformer 세부사항은 전부 여기에만 있음)
@@ -47,6 +50,24 @@ sbatch run_slurm.sh       # HPC(SLURM)
 `finetuned_model_path`에 그 경로(파일 또는 디렉터리)를 지정하면 된다 — Step
 8(fine-tuning)을 건너뛰고 바로 Step 9(예측)로 넘어간다. 비워두면(기본값) 매번 새로
 fine-tune한다.
+
+## Reference Mapping (mode: embed)
+
+fine-tuning 없이, 사전학습 모델로 reference/query를 각각 임베딩한 뒤 임베딩 공간에서
+k-NN 다수결로 reference의 `celltype_col` label을 query에 전파한다
+(scGPT `Tutorial_Reference_Mapping.ipynb`와 동일한 방식 - zero-shot이라 annotation의
+fine-tuning 경로보다 훨씬 빠르다). `config.yaml`에서 `mode: embed`로 지정하면 되고,
+`knn_k`(기본 10)/`gene_col`(기본 `gene_name`) 두 값만 이 mode 전용이다. 결과는
+finetune_predict와 동일한 표준 output 구조(`predictions.csv`, `metrics.json` 등)로
+저장되므로 아래 표를 그대로 참고하면 된다.
+
+**현재 알려진 제약**: `pipeline/data_io.py`의 h5ad 검증 단계가 reference/query 둘 다
+`celltype_col`을 요구한다 (finetune_predict 경로와 동일한 검증 함수를 재사용해서).
+그래서 지금은 query에도 정답 label이 있어야 accuracy까지 함께 계산되는 형태로 동작하고,
+"라벨이 전혀 없는 새 데이터를 매핑"하는 순수한 용도로 쓰려면 이 검증 로직을 mode별로
+분리하는 작업이 추가로 필요하다 (로드맵 참고). scGPT만 `embed()`를 구현했고
+(`src/adapters/scgpt_adapter.py`, 내부적으로 scGPT의 `scg.tasks.embed_data()`를 그대로
+사용), Geneformer는 아직 `mode: embed`를 지원하지 않는다(명확한 에러로 안내됨).
 
 ## 예측 신뢰도 경고
 
@@ -140,5 +161,12 @@ requirements.txt 하단 "Geneformer 어댑터 전용" 구간)을 설치한다 �
       단, 위 "Geneformer 지원 (검증 필요)" 참고: 실제 geneformer 라이브러리로 실행 검증은 아직 안 됨)
 - [ ] Geneformer adapter를 실제 환경(geneformer 설치, raw count h5ad, 사전학습 체크포인트)에서
       end-to-end 실행 검증
-- [ ] `mode: embed`, `mode: train_head` 구현
-- [ ] 새 task(GRN, Integration, Multiomics, Perturbation, Reference Mapping 등) 지원은 위 모델 축 검증 이후 — ModelAdapter/run.py를 task에 무관하게 다시 일반화해야 함
+- [x] `mode: embed` 구현 (scGPT reference mapping, `Tutorial_Reference_Mapping.ipynb` 기반) —
+      위 "Reference Mapping (mode: embed)" 절의 알려진 제약(query도 label 필요) 참고
+- [ ] `mode: embed`를 GPU 환경에서 실제 h5ad로 end-to-end 실행 검증 (아직 미검증 - scgpt
+      패키지가 없는 개발 환경이라 py_compile/synthetic 테스트로만 확인함)
+- [ ] mode별로 다른 config 필수 키 검증 (지금은 embed에서도 finetune_predict용 키인
+      n_bins/max_seq_len/epochs 등이 형식상 필요함 - 실제로는 안 쓰임)
+- [ ] query에 label이 없어도 되는 순수 매핑 경로 지원 (위 "현재 알려진 제약" 참고)
+- [ ] `mode: train_head` 구현
+- [ ] 새 task(GRN, Integration, Multiomics, Perturbation 등) 지원은 위 모델 축 검증 이후 — ModelAdapter/run.py를 task에 무관하게 다시 일반화해야 함

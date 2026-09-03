@@ -22,6 +22,9 @@ console = Console()
 CORE_REQUIRED_KEYS = ["output_dir"]
 
 SUPPORTED_MODES = ["finetune_predict", "embed", "train_head"]
+#: SUPPORTED_MODES 중 실제로 실행 가능한 것. train_head는 아직 config 구조상
+#: 자리만 있고 미구현 - 여기 없는 mode를 지정하면 "구현 안 됨"으로 명확히 막는다.
+IMPLEMENTED_MODES = ["finetune_predict", "embed"]
 DEFAULT_MODE = "finetune_predict"
 DEFAULT_MODEL = "scgpt"
 
@@ -79,14 +82,14 @@ def validate_config(
             f"현재 지원되는 값: {', '.join(SUPPORTED_MODES)}"
         )
 
-    if mode != "finetune_predict":
-        # embed / train_head는 구조상 자리는 마련해두었지만 아직 구현 전.
+    if mode not in IMPLEMENTED_MODES:
+        # train_head는 구조상 자리는 마련해두었지만 아직 구현 전.
         # 사용자가 혼란스러운 traceback을 보기 전에 여기서 명확히 안내.
         checks.append(("mode 구현 여부", "⚠️", f"'{mode}'는 아직 구현되지 않았습니다 (로드맵)"))
         _print_checks(checks)
         raise ConfigError(
             f"mode='{mode}'는 config 구조상 예약되어 있으나 아직 구현되지 않았습니다. "
-            f"지금은 mode: finetune_predict 만 실행할 수 있습니다."
+            f"지금 실행 가능한 값: {', '.join(IMPLEMENTED_MODES)}"
         )
 
     # 2) 공통 필수 키

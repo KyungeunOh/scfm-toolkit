@@ -103,6 +103,19 @@ def validate_h5ad(
     }
 
 
+def load_h5ad_full(path: str):
+    """
+    validate_h5ad()는 셀/유전자 수·컬럼 존재 여부만 가볍게 확인하려고 backed 모드로
+    읽지만(전체를 메모리에 올리지 않음), mode: embed(reference mapping)처럼 실제로
+    임베딩을 계산하려면 전체 데이터가 메모리에 있어야 한다 - 그 용도의 일반 h5ad
+    로더. h5ad를 다루는 다른 model-agnostic 로직과 마찬가지로 pipeline/ 쪽에 둔다
+    (run.py는 anndata를 직접 import하지 않는다는 설계 원칙 유지).
+    """
+    import anndata as ad
+
+    return ad.read_h5ad(path)
+
+
 def _get_gene_names(adata, gene_name_col: str) -> List[str]:
     if gene_name_col in adata.var.columns:
         return adata.var[gene_name_col].astype(str).tolist()

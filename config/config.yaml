@@ -9,8 +9,10 @@
 #        "Geneformer 지원 (검증 필요)" 절을 먼저 확인할 것. 모델이 다르면 아래 데이터/
 #        전처리/학습 파라미터 중 일부(특히 data_is_raw, n_bins 등 scGPT 전용 항목)는
 #        의미가 없거나 다르게 해석될 수 있음.
-# mode:  현재 finetune_predict만 구현됨. embed / train_head는 config 구조상
-#        자리는 마련해두었으나 실행 시 "아직 구현 안 됨" 에러로 안내됨 (로드맵)
+# mode:  finetune_predict(fine-tuning 후 예측) 또는 embed(reference mapping,
+#        fine-tuning 없는 zero-shot). train_head는 config 구조상 자리만 있고
+#        아직 미구현. mode: embed일 때는 아래 "학습/추론 파라미터" 대부분이
+#        무시되고 knn_k/gene_col만 쓰인다 (아래 참고).
 model: scgpt
 mode: finetune_predict
 
@@ -48,6 +50,16 @@ train_ratio: 0.9
 mask_ratio: 0.0
 include_zero_gene: false
 amp: true
+
+# --- mode: embed(reference mapping) 전용 - mode: finetune_predict일 때는 무시됨 ---
+# fine-tuning 없이 사전학습 모델로 reference/query를 각각 임베딩한 뒤, 임베딩 공간에서
+# k-NN 다수결로 reference의 celltype_col label을 query에 전파합니다
+# (scGPT Tutorial_Reference_Mapping.ipynb 방식). reference h5ad에는 celltype_col이
+# 반드시 있어야 하고, query h5ad는 평가용으로 있으면 accuracy가 함께 계산되고
+# 없어도 예측 자체는 동작합니다(단, 지금은 pipeline/data_io.py의 h5ad 검증 단계가
+# query에도 동일한 celltype_col을 요구합니다 - 순수 미지 데이터 매핑은 README 참고).
+knn_k: 10          # 다수결에 참여할 이웃 수
+gene_col: gene_name  # 유전자 이름이 var의 어느 컬럼/index에 있는지 (scGPT embed_data 인자)
 
 # --- 예측 신뢰도 경고 ---
 # 예측 확률(softmax 최대값)이 이 값보다 낮은 셀은 "불확실"로 표시됩니다

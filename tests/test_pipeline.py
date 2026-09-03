@@ -10,8 +10,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pandas as pd
 
+import numpy as np
+
 from pipeline.config import ConfigError, validate_config
-from pipeline.data_io import DataValidationError, validate_h5ad
+from pipeline.data_io import DataValidationError, load_h5ad_full, validate_h5ad
+from pipeline.reference_mapping import knn_label_transfer
 from pipeline.report import flag_low_confidence, save_metrics
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -70,11 +73,19 @@ expect_fail(
 )
 
 section("4. config validation - 아직 구현 안 된 mode")
-bad_cfg_mode = dict(good_cfg, mode="embed")
+bad_cfg_mode = dict(good_cfg, mode="train_head")
 expect_fail(
     lambda: validate_config(bad_cfg_mode, adapter_required_keys=["reference_path", "query_path", "model_dir"],
                              adapter_path_keys=["reference_path", "query_path", "model_dir"]),
-    ConfigError, "mode=embed (config 구조상 자리는 있지만 미구현)",
+    ConfigError, "mode=train_head (config 구조상 자리는 있지만 아직 미구현)",
+)
+
+section("4-1. config validation - mode: embed (reference mapping, 구현됨)")
+embed_cfg = dict(good_cfg, mode="embed")
+expect_pass(
+    lambda: validate_config(embed_cfg, adapter_required_keys=["reference_path", "query_path", "model_dir"],
+                             adapter_path_keys=["reference_path", "query_path", "model_dir"]),
+    "mode=embed은 이제 정상적으로 실행 가능해야 함",
 )
 
 # ---------------------------------------------------------------------
@@ -183,5 +194,52 @@ def _check_metrics_confidence_only():
 
 
 expect_pass(_check_metrics_confidence_only, "label 없어도 low_confidence 통계는 metrics.json에 저장됨")
+
+# ---------------------------------------------------------------------
+# mode: embed (reference mapping) 관련 - load_h5ad_full, knn_label_transfer
+section("13. data_io.load_h5ad_full - 전체 데이터를 실제로 메모리에 로드")
+
+
+def _check_load_h5ad_full():
+    adata = load_h5ad_full(str(FIXTURES / "reference.h5ad"))
+    assert adata.n_obs > 0 and adata.n_vars > 0
+    assert adata.X is not None, "backed 모드가 아니라 X가 실제로 로드돼 있어야 함"
+
+
+expect_pass(_check_load_h5ad_full, "reference.h5ad를 전체 로드 (validate_h5ad의 backed 모드와 달리 X 접근 가능)")
+
+section("14. reference_mapping.knn_label_transfer - 임베딩 공간 k-NN 다수결 매핑")
+
+
+def _check_knn_label_transfer():
+    rng = np.random.RandomState(0)
+    centers = {"T cell": [0, 0], "B cell": [10, 10], "NK cell": [0, 10]}
+    ref_emb, ref_labels = [], []
+    for label, c in centers.items():
+        pts = rng.normal(loc=c, scale=0.5, size=(30, 2))
+        ref_emb.append(pts)
+        ref_labels.extend([label] * 30)
+    ref_emb = np.vstack(ref_emb)
+    ref_labels = np.array(ref_labels)
+
+    query_emb = np.array([[0.1, 0.1], [10.1, 9.9], [0.2, 9.8]])
+    preds, scores = knn_label_transfer(ref_emb, ref_labels, query_emb, k=10)
+
+    assert list(preds) == ["T cell", "B cell", "NK cell"], list(preds)
+    assert all(s == 1.0 for s in scores), f"명확히 분리된 클러스터는 만장일치(score=1.0)여야 함: {scores}"
+
+
+expect_pass(_check_knn_label_transfer, "3개의 뚜렷한 클러스터에 대해 k-NN 다수결로 정확히 매핑됨")
+
+
+def _check_knn_k_larger_than_reference():
+    ref_emb = np.array([[0.0, 0.0], [1.0, 1.0]])
+    ref_labels = np.array(["A", "B"])
+    query_emb = np.array([[0.0, 0.0]])
+    preds, scores = knn_label_transfer(ref_emb, ref_labels, query_emb, k=10000)
+    assert len(preds) == 1, "k가 reference 수보다 커도 에러 없이 clip돼야 함"
+
+
+expect_pass(_check_knn_k_larger_than_reference, "k > len(reference)일 때도 안전하게 처리됨")
 
 print("\n모든 테스트 완료.")

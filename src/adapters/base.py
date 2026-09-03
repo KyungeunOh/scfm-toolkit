@@ -139,10 +139,27 @@ class ModelAdapter(ABC):
         """예측 결과가 담긴 adata(obs에 predictions/pred_score 포함)를 반환"""
         raise NotImplementedError
 
-    def embed(self, model, adata, prepared_inputs, cfg: Dict[str, Any], device):
+    def embed(self, adata, cfg: Dict[str, Any], device):
         """
-        mode: embed 용 자리. 모든 모델이 embedding 추출을 지원하는 건 아니므로
-        기본 구현은 명확한 에러를 내도록 하고, 지원하는 adapter만 override한다.
+        mode: embed(현재는 reference mapping에 사용 - Tutorial_Reference_Mapping.ipynb
+        참고)에서 호출된다.
+
+        finetune_predict 경로(load_vocab_full → preprocess → prepare_inputs →
+        load_model 순서로 run.py가 단계별로 오케스트레이션)와 시그니처가 다른 이유:
+        실제로 scGPT의 embed_data() 같은 고수준 유틸리티는 vocab 매칭/토큰화/모델
+        로딩을 전부 자체적으로 처리해서, annotation 경로처럼 여러 단계로 쪼갤 필요가
+        없었다 - 처음엔 finetune_predict와 같은 시그니처(model, prepared_inputs를
+        미리 받는 형태)로 자리만 마련해뒀었는데, 실제 reference mapping을 구현하면서
+        불필요한 걸 확인하고 이렇게 단순화했다.
+
+        run.py는 원본 adata(reference 또는 query 하나)를 그대로 넘긴다 - 이 메서드가
+        내부적으로 필요한 모델 로딩/전처리를 전부 알아서 한다. 반환값은
+        (n_cells, embed_dim) 모양의 numpy 배열(세포별 임베딩)이어야 한다. 그 이후의
+        reference-query 매핑(k-NN 다수결)은 pipeline/reference_mapping.py가 모델
+        무관하게 처리하므로, 이 메서드는 "임베딩을 만드는 것"까지만 책임지면 된다.
+
+        기본 구현은 명확한 에러를 낸다 - 모든 모델이 embedding 추출을 지원하는 건
+        아니므로, 지원하는 adapter만 override한다.
         """
         raise NotImplementedError(
             f"{self.name} adapter는 아직 embed 모드를 지원하지 않습니다."
