@@ -207,22 +207,30 @@ model별로 폴더가 먼저 생기고(있으면 재사용) 그 안에 `mode_날
 구체적으로 적어뒀다). GPU가 있는 실제 환경(HPC/Docker)에서 아래 순서로 처음 검증할 것을
 권장한다.
 
+**2026-09-03 갱신**: Geneformer 전용 부가 의존성(transformers/peft/bitsandbytes/optuna/
+ray/loompy)은 `requirements-geneformer.txt`로 별도 파일에 분리돼 있다 — scGPT 이미지의
+`requirements.txt`(Dockerfile이 설치하는 파일)에는 더 이상 포함되지 않는다. `mode: grn`용
+`networkx`/`gseapy`를 추가해 scGPT 이미지를 재빌드하다가, `transformers==4.46.*`가
+scGPT 스택의 `huggingface_hub==1.8.0`과 직접 버전 충돌(pip ResolutionImpossible)한다는
+게 실제로 드러나서 분리함 — 이 충돌 자체는 원래 있었지만 requirements.txt가 안 바뀌는
+동안 Docker 레이어 캐시가 `pip install` 단계를 계속 건너뛰어서 지금까지 한 번도 실제로
+검증된 적이 없었던 것으로 보인다.
+
 ### 1) geneformer 패키지 설치
 
-`geneformer`는 PyPI 패키지가 아니라서 `pip install -r requirements.txt`만으로는 설치되지
-않는다. HuggingFace 공식 저장소를 git-lfs로 클론해서 직접 설치해야 한다 (이 클론
+`geneformer`는 PyPI 패키지가 아니라서 `pip install -r requirements-geneformer.txt`만으로는
+설치되지 않는다. HuggingFace 공식 저장소를 git-lfs로 클론해서 직접 설치해야 한다 (이 클론
 디렉터리 자체가 사전학습 체크포인트도 포함하고 있어 아래 `model_dir`로 그대로 쓸 수 있다):
 
 ```bash
+pip install -r requirements-geneformer.txt
 git lfs install
 git clone https://huggingface.co/ctheodoris/Geneformer
 cd Geneformer && pip install .
 ```
 
-그다음 `pip install -r requirements.txt`로 나머지 부가 의존성(transformers, peft 등,
-requirements.txt 하단 "Geneformer 어댑터 전용" 구간)을 설치한다 — scGPT 스택과 같은
-환경에 함께 설치 시 버전 충돌 여부는 미검증이니, 가능하면 scGPT와 별도 가상환경/이미지로
-먼저 시도해보는 걸 권장한다.
+scGPT 이미지와 같은 환경에 함께 설치 시 (위 버전 충돌 건 외에도) 다른 버전 충돌 여부는
+아직 미검증이니, scGPT와 별도 가상환경/이미지로 먼저 시도해보는 걸 권장한다.
 
 ### 2) 데이터/config 준비
 

@@ -1,0 +1,40 @@
+# =========================================================================
+# Geneformer 어댑터 전용 (선택) - src/adapters/geneformer_adapter.py
+#
+# 2026-09-03: requirements.txt에서 분리했다. 원래는 requirements.txt 맨
+# 아래에 같이 있었는데, Docker 이미지가 `pip install -r requirements.txt`로
+# 파일 전체를 한 번에 설치하다 보니 아래 transformers==4.46.*(huggingface-hub
+# <1.0 요구)가 scGPT 스택의 huggingface_hub==1.8.0(requirements.txt)과
+# 직접 충돌해서 pip가 ResolutionImpossible로 실패했다 (mode: grn용
+# networkx/gseapy를 추가해 이미지를 재빌드하려던 시점에 처음 발견 - 이 충돌
+# 자체는 새로 생긴 게 아니라 원래 있었는데, requirements.txt가 안 바뀌던
+# 동안은 Docker 레이어 캐시가 이 pip install 단계를 매번 건너뛰어서 한 번도
+# 실제로 검증된 적이 없었던 것으로 추정됨).
+#
+# scGPT 스택과 같은 이미지에 함께 넣고 실제로 같이 돌려본 적은 아직 없음.
+# scGPT만 쓸 거면(mode: finetune_predict/embed/integration/grn) 이 파일은
+# 설치하지 않아도 된다 - Dockerfile은 requirements.txt만 설치한다.
+#
+# 중요: geneformer 자체는 PyPI 패키지가 아니라서 이 파일의 나머지 줄들처럼
+# `pip install -r requirements-geneformer.txt`만으로는 설치되지 않는다.
+# 공식 배포처인 HuggingFace 저장소를 git-lfs로 클론해서 `pip install .`로
+# 설치해야 한다 (그 클론 디렉터리 자체가 사전학습 체크포인트라 config.yaml의
+# model_dir로 그대로 쓸 수 있다). Geneformer를 실제로 쓰려면(Phase 5 참고 -
+# 이 프로젝트에서는 아직 HPC 실행 검증이 완료되지 않은 상태) scGPT 이미지와
+# 별도의 가상환경/이미지를 만들어서 아래 순서로 설치할 것을 권장:
+#
+#   pip install -r requirements-geneformer.txt
+#   git lfs install
+#   git clone https://huggingface.co/ctheodoris/Geneformer
+#   cd Geneformer && pip install .
+#
+# 아래는 그 geneformer 패키지가 요구하는 부가 의존성. 버전은
+# jkobject/geneformer(https://github.com/jkobject/geneformer)의
+# requirements.txt 기준.
+# =========================================================================
+transformers==4.46.*
+peft>=0.11.1
+bitsandbytes>=0.45.5
+optuna>=3.6
+ray>=2.6
+loompy>=3.0
