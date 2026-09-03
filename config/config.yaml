@@ -15,7 +15,8 @@
 #        mode: embed/integration일 때는 아래 "학습/추론 파라미터" 대부분이
 #        무시된다 (embed는 knn_k/gene_col만, integration은 n_hvg/gene_col만 씀).
 model: scgpt
-mode: finetune_predict
+#mode: finetune_predict
+mode : embed
 
 # --- 입력/출력 경로 (컨테이너 내부 경로, 수정 금지) ---
 reference_path: /workspace/data/c_data.h5ad
