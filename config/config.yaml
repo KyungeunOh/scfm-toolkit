@@ -22,8 +22,8 @@
 model: scgpt
 #mode: finetune_predict
 #mode: embed
-mode: integration
-#mode: grn
+#mode: integration
+mode: grn
 
 # --- 입력/출력 경로 (컨테이너 내부 경로, 수정 금지) ---
 reference_path: /workspace/data/c_data.h5ad
@@ -115,13 +115,21 @@ n_hvg: 3000
 # 정책상 원본 코드를 그대로 인용할 수 없어 요약 정보를 근거로 독립 재구현했습니다 -
 # mode: embed/integration만큼 "튜토리얼과 100% 동일 검증"된 상태는 아닙니다).
 #
+# GPU 실행 검증 완료(2026-09-03, gnode01, Phase 12): c_data.h5ad(7844개 세포,
+# vocab 매칭 93.6%)로 8단계 전부 정상 완료, resolution=40 기준 391개 metagene
+# 생성, gnode01의 Enrichr(온라인 API) 접근도 실제로 확인됨(10/10 성공). 가장 큰
+# metagene이 리보솜 단백질 유전자(RPL/RPS)로만 구성된 것도 확인 - 잘 알려진 강한
+# 공발현 모듈이라 클러스터링이 생물학적으로 말이 되는 결과를 낸다는 근거가 됨.
+#
 # 실행 전 확인할 것 (README "Gene Regulatory Network 분석 (mode: grn)" 절 참고):
-#   1. requirements.txt에 새로 추가된 networkx==3.4.2, gseapy==1.0.4가 실제 Docker
-#      이미지에 반영되도록 이미지를 재빌드해야 합니다 (아직 안 했다면 mode: grn은
-#      ModuleNotFoundError로 실패합니다).
-#   2. gseapy의 pathway enrichment 단계는 Enrichr(maayanlab.cloud) 온라인 API를
-#      호출합니다 - gnode01이 실제로 인터넷에 접근 가능한지 아직 확인된 적이
-#      없습니다. 안 되더라도 아래 grn_skip_enrichment: true로 그 단계만 끄면 나머지
+#   1. requirements.txt/requirements-geneformer.txt 분리(2026-09, Phase 12) 이후로
+#      정상 빌드됨 - 이 저장소를 최신으로 git pull 받았다면 별도 조치 불필요.
+#   2. metagene이 많으면(391개처럼) grn_metagene_scores.png는 가독성을 위해 유전자
+#      수 상위 grn_top_n_metagenes개만 그립니다 - 잘린 나머지 metagene의 점수는
+#      grn_metagene_scores.csv에 전부 남아있으니 필요하면 그쪽을 확인하세요.
+#   3. gseapy의 pathway enrichment 단계는 Enrichr(maayanlab.cloud) 온라인 API를
+#      호출합니다 - gnode01에서는 접근 가능함을 실제로 확인했지만(위 참고), 다른
+#      환경에서 안 되더라도 아래 grn_skip_enrichment: true로 그 단계만 끄면 나머지
 #      (클러스터링/점수화/네트워크)는 정상 동작합니다. 꺼두지 않아도 API 호출이
 #      실패하면 그 metagene만 건너뛰고 나머지는 계속 진행하도록 코드에서 처리했습니다.
 #
@@ -130,8 +138,8 @@ n_hvg: 3000
 # 동일하고(batch_key와 달리 grn은 celltype_col만 있으면 되므로 c_data.h5ad를 그대로
 # 쓸 수 있음을 확인함), YAML에서 같은 키를 두 번 쓰면 나중 값이 조용히 덮어써서
 # 혼란을 줄 수 있어 여기서는 중복 선언하지 않았습니다.
-grn_resolution: 40          # Leiden 클러스터링 resolution - 클수록 더 잘게(더 많은 metagene으로) 나뉨 (튜토리얼 예시값)
-grn_top_n_metagenes: 10     # 유전자 수가 많은 순으로 상위 몇 개 metagene까지 pathway enrichment를 시도할지
+grn_resolution: 40          # Leiden 클러스터링 resolution - 클수록 더 잘게(더 많은 metagene으로) 나뉨 (튜토리얼 예시값, 실측: 391개 metagene 생성됨)
+grn_top_n_metagenes: 10     # 유전자 수가 많은 순으로 상위 몇 개 metagene까지 pathway enrichment를 시도하고 heatmap에 표시할지
 grn_skip_enrichment: false  # true로 설정하면 gseapy 온라인 API 호출(Step 6)을 아예 건너뜀
 grn_enrichr_gene_sets: ["Reactome_2022"]  # gseapy.enrichr()에 넘길 pathway 데이터베이스 목록
 grn_enrichr_organism: "Human"

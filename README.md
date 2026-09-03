@@ -136,25 +136,26 @@ fine-tuning 없이, 사전학습 모델의 **유전자** 임베딩(세포 임베
 
 | 파일 | 내용 |
 |---|---|
-| `grn_metagenes.csv` | metagene(클러스터) id, 유전자 수, 유전자 목록 |
-| `grn_metagene_scores.png` | metagene x cell type 발현 점수 heatmap (clustermap) |
+| `grn_metagenes.csv` | metagene(클러스터) id, 유전자 수, 유전자 목록 (전체 metagene) |
+| `grn_metagene_scores.csv` | metagene x cell type 발현 점수 전체 (모든 metagene, 잘리지 않음) |
+| `grn_metagene_scores.png` | 위 점수의 heatmap (clustermap) — metagene이 많으면(수백 개도 가능) 가독성을 위해 유전자 수 기준 상위 `grn_top_n_metagenes`개만 그린다. 잘려나간 나머지는 위 CSV에 전부 있다 |
 | `grn_enrichment.csv` | 상위 metagene별 Reactome pathway enrichment 결과 (term, p-value 등) |
 | `grn_network_top_metagene.png` | 가장 큰 metagene의 유전자 간 cosine similarity 네트워크 |
 | `resolved_config.yaml`, `environment.json` | 다른 mode와 동일 |
 
 **실행 전 필수 확인 사항**:
-1. **Docker 이미지 재빌드 필요.** 이 mode를 위해 `requirements.txt`에 `networkx==3.4.2`,
-   `gseapy==1.0.4`를 새로 추가했다 — 아직 이 값으로 이미지를 다시 빌드하지 않았다면
-   `mode: grn`은 `ModuleNotFoundError`로 바로 실패한다. 두 패키지 다 순수 pip 설치
-   패키지(추가 시스템 라이브러리나 컴파일러 불필요, `gseapy`도 1.0.4는 prebuilt wheel이
-   있어 Rust 툴체인이 필요 없도록 버전을 골랐다 - Geneformer의 `accumulation-tree` 삽질을
-   피하기 위한 의도적 선택)라 재빌드 자체의 리스크는 낮지만, HPC pip 미러가 정확히 이
-   버전들을 갖고 있는지는 실제로 재빌드해봐야 확인된다.
-2. **HPC 인터넷 접근 여부 미확인.** `gseapy.enrichr()`는 Enrichr(maayanlab.cloud) 온라인
-   API를 호출한다 — `gnode01`이 실제로 외부 인터넷에 접근 가능한지 이 프로젝트에서 아직
-   확인된 적이 없다. 안 되더라도 `grn_skip_enrichment: true`로 그 단계(Step 6)만 끄면
-   나머지(클러스터링/점수화/네트워크)는 정상 동작하도록 설계했고, 꺼두지 않았는데 API 호출이
-   실패해도 그 metagene만 건너뛰고 나머지는 계속 진행한다(전체 실행이 죽지 않음).
+1. **Docker 이미지 빌드 시 requirements.txt 분리 필요.** 이 mode를 위해 `requirements.txt`에
+   `networkx==3.4.2`, `gseapy==1.0.4`를 추가하면서, 기존에 같은 파일 하단에 있던 Geneformer
+   전용 패키지(`transformers==4.46.*` 등)가 scGPT 스택의 `huggingface_hub==1.8.0`과 실제로
+   버전 충돌한다는 게 처음으로 드러나(Docker 레이어 캐시 때문에 이전까지는 한 번도 검증된 적이
+   없었음) `requirements-geneformer.txt`로 분리했다(2026-09, Phase 12) — 이 저장소를 최신으로
+   `git pull` 받았다면 별도 조치 없이 정상 빌드된다.
+2. **HPC 인터넷 접근 - 실제 확인됨.** `gseapy.enrichr()`는 Enrichr(maayanlab.cloud) 온라인
+   API를 호출하는데, `gnode01`에서 실제 GPU 실행 시 10/10개 metagene enrichment가 전부
+   성공해 인터넷 접근이 된다는 게 확인됐다(Phase 12). 혹시 다른 환경에서 안 되더라도
+   `grn_skip_enrichment: true`로 그 단계(Step 6)만 끄면 나머지(클러스터링/점수화/네트워크)는
+   정상 동작하도록 설계했고, 꺼두지 않았는데 API 호출이 실패해도 그 metagene만 건너뛰고
+   나머지는 계속 진행한다(전체 실행이 죽지 않음).
 
 **검증 신뢰도가 다른 mode보다 낮다는 점을 명시**: `mode: embed`/`mode: integration`은
 공식 튜토리얼 코드를 GitHub에서 직접 fetch해서 한 줄씩 대조하며 구현했지만, 이 mode의
@@ -165,7 +166,12 @@ fine-tuning 없이, 사전학습 모델의 **유전자** 임베딩(세포 임베
 클러스터링 → metagene → cell type 점수화 → pathway enrichment)은 원본과 동일하지만,
 점수 정규화 축 같은 세부 구현까지 100% 동일하다고 보증하지는 않는다.
 
-**아직 GPU에서 실행 검증하지 못했다** (Docker 이미지 재빌드가 먼저 필요 - 위 참고).
+**GPU 실행 검증 완료 (2026-09-03, gnode01 RTX 3090, Phase 12)**: `c_data.h5ad`(7844개
+세포, vocab 매칭 2808/3000 = 93.6%)로 실행 → 8단계 전부 에러 없이 완료, 391개
+metagene으로 클러스터링됨(`grn_resolution: 40` 기준). 가장 큰 metagene(21개 유전자)이
+리보솜 단백질 유전자(RPL/RPS 계열)로만 구성돼 있는 걸 시각적으로 확인 — 리보솜 유전자는
+잘 알려진 강한 공발현(co-expression) 모듈이라, 이 구현이 생물학적으로 말이 되는 클러스터를
+만들고 있다는 실질적인 검증 근거가 된다.
 
 ## 예측 신뢰도 경고
 

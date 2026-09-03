@@ -15,10 +15,13 @@ import numpy as np
 from pipeline.config import ConfigError, resolve_run_output_dir, validate_config
 from pipeline.data_io import DataValidationError, load_h5ad_full, validate_h5ad
 from pipeline.grn import (
+    _select_top_n_metagene_columns,
     enrich_metagenes,
     get_metagenes,
     save_enrichment_results,
     save_metagene_assignments,
+    save_metagene_heatmap,
+    save_metagene_scores,
 )
 from pipeline.reference_mapping import knn_label_transfer
 from pipeline.report import flag_low_confidence, save_metrics
@@ -427,5 +430,70 @@ expect_pass(
     "enrichment 전부 실패해도 grn_enrichment.csv는 헤더만 있는 빈 파일로 생성됨 "
     "(grn_skip_enrichment=true로 '아예 시도 안 함'과 구분하기 위한 설계)",
 )
+
+section("20. grn.save_metagene_scores - metagene 점수 전체를 CSV로 저장 (heatmap과 달리 안 잘림)")
+
+
+def _check_save_metagene_scores():
+    # 391개 metagene처럼 컬럼이 아주 많은 실제 케이스를 흉내낸 합성 데이터
+    score_df = pd.DataFrame(
+        np.random.rand(3, 50),
+        index=["celltype_A", "celltype_B", "celltype_C"],
+        columns=[f"metagene_{i}" for i in range(50)],
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = save_metagene_scores(score_df, Path(tmp))
+        assert out_path is not None and out_path.exists()
+        loaded = pd.read_csv(out_path, index_col=0)
+        assert loaded.shape == (3, 50), f"CSV에 50개 metagene 전부 저장돼야 함: {loaded.shape}"
+
+
+expect_pass(_check_save_metagene_scores, "score_metagenes() 결과를 grn_metagene_scores.csv에 전부(50개 컬럼) 저장")
+
+
+def _check_save_metagene_scores_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = save_metagene_scores(pd.DataFrame(), Path(tmp))
+        assert out_path is None, "빈 DataFrame이면 CSV 파일을 만들지 않아야 함"
+
+
+expect_pass(_check_save_metagene_scores_empty, "점수 데이터가 비어있으면 grn_metagene_scores.csv를 생략함")
+
+section("21. grn._select_top_n_metagene_columns / save_metagene_heatmap - metagene이 많으면 상위 top_n개만 표시")
+
+
+def _check_select_top_n_columns():
+    score_df = pd.DataFrame(np.random.rand(2, 391), columns=[f"metagene_{i}" for i in range(391)])
+    capped = _select_top_n_metagene_columns(score_df, top_n=10)
+    assert capped.shape[1] == 10, f"top_n=10이면 컬럼 10개로 잘려야 함: {capped.shape}"
+    assert list(capped.columns) == list(score_df.columns[:10]), "앞에서부터(가장 큰 metagene부터) 잘라야 함"
+
+
+expect_pass(_check_select_top_n_columns, "391개 컬럼도 top_n=10이면 앞쪽 10개로 정확히 잘림 (실제 GPU 실행에서 391개 metagene 확인됨, Phase 12)")
+
+
+def _check_select_top_n_columns_smaller_than_top_n():
+    score_df = pd.DataFrame(np.random.rand(2, 5), columns=[f"metagene_{i}" for i in range(5)])
+    capped = _select_top_n_metagene_columns(score_df, top_n=10)
+    assert capped.shape[1] == 5, "컬럼 수가 top_n보다 적으면 전체를 그대로 반환해야 함"
+
+
+expect_pass(_check_select_top_n_columns_smaller_than_top_n, "metagene 수가 top_n보다 적으면 자르지 않고 전체 반환")
+
+
+def _check_save_metagene_heatmap_caps_width():
+    # 391개처럼 아주 많은 컬럼에서도 heatmap 이미지 폭이 무한정 커지지 않는지 확인
+    # (수정 전 버그: 컬럼당 0.5인치라 391개면 195인치짜리 사실상 못 읽는 이미지가 생성됨)
+    score_df = pd.DataFrame(
+        np.random.rand(4, 391),
+        index=["A", "B", "C", "D"],
+        columns=[f"metagene_{i}" for i in range(391)],
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = save_metagene_heatmap(score_df, Path(tmp) / "heatmap.png", top_n=10)
+        assert out_path is not None and out_path.exists()
+
+
+expect_pass(_check_save_metagene_heatmap_caps_width, "top_n=10으로 391개 컬럼을 넘겨도 에러 없이(상위 10개만 그려서) 저장됨")
 
 print("\n모든 테스트 완료.")

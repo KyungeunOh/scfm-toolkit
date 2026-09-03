@@ -33,6 +33,7 @@ from pipeline.grn import (
     save_metagene_assignments,
     save_metagene_heatmap,
     save_metagene_network,
+    save_metagene_scores,
     score_metagenes,
 )
 from pipeline.integration import evaluate_integration, save_integration_metrics, save_integration_umap
@@ -435,8 +436,16 @@ def run_grn(cfg: dict, adapter, device) -> None:
 
     _step_banner("grn", 5, "Metagene별 cell type 발현 점수화")
     score_df = score_metagenes(adata, metagenes, celltype_col, gene_col=gene_col)
-    heatmap_path = save_metagene_heatmap(score_df, output_dir / "grn_metagene_scores.png")
-    _step_done("점수화 완료" + (f", heatmap 저장: {heatmap_path.name}" if heatmap_path else " (계산된 점수가 없어 heatmap 생략)"))
+    # 전체 metagene의 점수는 항상 CSV로 남긴다 - heatmap은 metagene이 많으면(수백 개도
+    # 가능, Phase 12에서 391개 확인) 가독성을 위해 상위 top_n개만 그리기 때문에, 잘려나간
+    # 나머지 값이 어디에도 안 남는 걸 막기 위함(save_metagene_heatmap 자체 docstring 참고).
+    scores_csv_path = save_metagene_scores(score_df, output_dir)
+    heatmap_path = save_metagene_heatmap(score_df, output_dir / "grn_metagene_scores.png", top_n=top_n)
+    _step_done(
+        "점수화 완료"
+        + (f", 전체 데이터: {scores_csv_path.name}" if scores_csv_path else " (계산된 점수가 없어 CSV/heatmap 생략)")
+        + (f", heatmap 저장: {heatmap_path.name}" if heatmap_path else "")
+    )
 
     _step_banner("grn", 6, "Pathway enrichment")
     if skip_enrichment:

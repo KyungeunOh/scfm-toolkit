@@ -164,7 +164,48 @@ def score_metagenes(adata, metagenes: Dict[str, List[str]], celltype_col: str, g
     return normalized
 
 
-def save_metagene_heatmap(score_df, output_path: Path) -> Optional[Path]:
+def save_metagene_scores(score_df, output_dir: Path) -> Optional[Path]:
+    """
+    score_metagenes()가 계산한 (cell type x metagene) 점수 전체를 CSV로 저장한다.
+    metagene이 수백 개(예: 실제 GPU 실행에서 resolution=40으로 391개 확인됨,
+    Phase 12)면 save_metagene_heatmap()이 가독성을 위해 상위 일부만 그리므로,
+    잘려나간 나머지 metagene의 점수도 항상 어딘가에는 남기기 위한 함수 - heatmap과
+    달리 이건 생략되지 않는다(단, score_df가 비어있으면 파일 자체를 만들지 않는다).
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if score_df is None or score_df.empty:
+        logger.warning("metagene 점수 데이터가 비어있어 grn_metagene_scores.csv를 생략합니다.")
+        return None
+    out_path = output_dir / "grn_metagene_scores.csv"
+    score_df.to_csv(out_path)
+    logger.info(f"metagene 점수 전체({score_df.shape[1]}개 metagene) 저장: {out_path.name}")
+    return out_path
+
+
+def _select_top_n_metagene_columns(score_df, top_n: Optional[int]):
+    """
+    heatmap용으로 표시할 metagene(컬럼)을 상위 top_n개로 제한한다. score_df의 컬럼은
+    score_metagenes()가 get_metagenes()의 순서(유전자 수 많은 순 정렬)를 그대로
+    보존해서 만들기 때문에, 앞에서부터 top_n개를 자르면 곧 "가장 큰 metagene부터
+    top_n개"가 된다 - 순서를 다시 계산하지 않는다. top_n이 None이거나 컬럼 수보다
+    크거나 같으면 전체를 그대로 반환한다(자르지 않음).
+    """
+    if top_n is None or score_df.shape[1] <= top_n:
+        return score_df
+    return score_df.iloc[:, :top_n]
+
+
+def save_metagene_heatmap(score_df, output_path: Path, top_n: Optional[int] = None) -> Optional[Path]:
+    """
+    metagene별 cell type 발현 점수 heatmap을 저장한다. metagene(컬럼) 수가 많으면
+    (예: resolution을 높게 잡아 수백 개가 나온 경우) 컬럼마다 폭을 확보하는 기존 방식이
+    극단적으로 넓고 얇은(그래서 사실상 못 읽는) 이미지를 만드는 문제가 실제 GPU
+    실행에서 확인됐다(Phase 12, 391개 metagene → 그림 폭 195인치). 그래서 top_n이
+    주어지면 (get_metagenes()가 이미 정렬해둔 순서상) 가장 큰 top_n개 metagene만
+    그리고, 전체 데이터는 잘리지 않는다는 걸 보장하기 위해 save_metagene_scores()가
+    항상 별도로 전체를 CSV에 저장한다(이 함수는 표시만 담당, 데이터 보존은 그쪽 책임).
+    """
     if score_df is None or score_df.empty:
         logger.warning("metagene 점수 데이터가 비어있어 heatmap을 생략합니다.")
         return None
@@ -174,12 +215,21 @@ def save_metagene_heatmap(score_df, output_path: Path) -> Optional[Path]:
     import matplotlib.pyplot as plt
     import seaborn as sns
 
-    fig_w = max(6.0, score_df.shape[1] * 0.5)
-    fig_h = max(4.0, score_df.shape[0] * 0.4)
-    g = sns.clustermap(score_df, cmap="viridis", figsize=(fig_w, fig_h))
+    total_n = score_df.shape[1]
+    plot_df = _select_top_n_metagene_columns(score_df, top_n)
+    shown_n = plot_df.shape[1]
+
+    fig_w = max(6.0, min(40.0, shown_n * 0.5))
+    fig_h = max(4.0, plot_df.shape[0] * 0.4)
+    g = sns.clustermap(plot_df, cmap="viridis", figsize=(fig_w, fig_h))
+    if shown_n < total_n:
+        g.fig.suptitle(f"상위 {shown_n}개 / 전체 {total_n}개 metagene (나머지는 grn_metagene_scores.csv 참고)", y=1.02)
     g.savefig(output_path, dpi=150)
     plt.close("all")
-    logger.info(f"metagene heatmap 저장: {Path(output_path).name}")
+    logger.info(
+        f"metagene heatmap 저장: {Path(output_path).name}"
+        + (f" (전체 {total_n}개 중 상위 {shown_n}개만 표시)" if shown_n < total_n else "")
+    )
     return Path(output_path)
 
 
