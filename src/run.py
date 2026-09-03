@@ -23,7 +23,7 @@ from rich.panel import Panel
 sys.path.insert(0, str(Path(__file__).parent))
 
 from adapters import get_adapter
-from pipeline.config import ConfigError, load_config, validate_config
+from pipeline.config import ConfigError, load_config, resolve_run_output_dir, validate_config
 from pipeline.data_io import DataValidationError, load_h5ad_full, validate_h5ad
 from pipeline.integration import evaluate_integration, save_integration_metrics, save_integration_umap
 from pipeline.reference_mapping import knn_label_transfer
@@ -398,6 +398,14 @@ def main():
     except (ConfigError, DataValidationError) as e:
         console.print(Panel(f"[bold red]검증 실패[/bold red]\n{e}", border_style="red", title="실행 중단"))
         sys.exit(1)
+
+    # config.yaml의 output_dir는 이제 "base 디렉터리"로 취급한다 - 실제 저장 위치는
+    # base/<model>/<mode>_<날짜> 하위 폴더로 자동 정리한다 (여러 model/mode를 계속
+    # 실행해도 outputs/ 밑이 뒤섞이지 않게). 같은 날 같은 model+mode를 다시 실행하면
+    # 기존 결과를 덮어쓰지 않고 _2, _3 ... 을 붙인다.
+    resolved_output_dir = resolve_run_output_dir(cfg["output_dir"], cfg["model"], mode)
+    cfg["output_dir"] = str(resolved_output_dir)
+    console.print(f"결과 저장 위치: [bold]{resolved_output_dir}[/bold]")
 
     set_seed(cfg.get("seed", 42))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

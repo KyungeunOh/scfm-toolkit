@@ -12,7 +12,7 @@ import pandas as pd
 
 import numpy as np
 
-from pipeline.config import ConfigError, validate_config
+from pipeline.config import ConfigError, resolve_run_output_dir, validate_config
 from pipeline.data_io import DataValidationError, load_h5ad_full, validate_h5ad
 from pipeline.reference_mapping import knn_label_transfer
 from pipeline.report import flag_low_confidence, save_metrics
@@ -270,5 +270,47 @@ def _check_knn_k_larger_than_reference():
 
 
 expect_pass(_check_knn_k_larger_than_reference, "k > len(reference)일 때도 안전하게 처리됨")
+
+# ---------------------------------------------------------------------
+section("15. config.resolve_run_output_dir - model/mode/날짜별로 output 폴더 정리")
+
+
+def _check_resolve_output_dir_basic():
+    from datetime import date
+    with tempfile.TemporaryDirectory() as tmp:
+        result = resolve_run_output_dir(tmp, "scgpt", "embed", today=date(2026, 9, 4))
+        assert result == Path(tmp) / "scgpt" / "embed_260904", result
+        assert not result.exists(), "실행 전이므로 아직 폴더가 실제로 생기면 안 됨(경로만 정함)"
+
+
+expect_pass(_check_resolve_output_dir_basic, "base/model/mode_YYMMDD 형태로 경로를 정함 (아직 폴더는 안 만듦)")
+
+
+def _check_resolve_output_dir_collision():
+    from datetime import date
+    with tempfile.TemporaryDirectory() as tmp:
+        first = resolve_run_output_dir(tmp, "scgpt", "embed", today=date(2026, 9, 4))
+        first.mkdir(parents=True)  # 같은 날 같은 model+mode로 "이미 실행한 적 있음"을 흉내
+        second = resolve_run_output_dir(tmp, "scgpt", "embed", today=date(2026, 9, 4))
+        assert second == Path(tmp) / "scgpt" / "embed_260904_2", second
+        second.mkdir(parents=True)
+        third = resolve_run_output_dir(tmp, "scgpt", "embed", today=date(2026, 9, 4))
+        assert third == Path(tmp) / "scgpt" / "embed_260904_3", third
+
+
+expect_pass(_check_resolve_output_dir_collision, "같은 날 같은 model+mode를 다시 실행하면 기존 결과를 안 덮어쓰고 _2, _3 ... 을 붙임")
+
+
+def _check_resolve_output_dir_different_mode_no_collision():
+    from datetime import date
+    with tempfile.TemporaryDirectory() as tmp:
+        embed_dir = resolve_run_output_dir(tmp, "scgpt", "embed", today=date(2026, 9, 4))
+        embed_dir.mkdir(parents=True)
+        integration_dir = resolve_run_output_dir(tmp, "scgpt", "integration", today=date(2026, 9, 4))
+        assert integration_dir == Path(tmp) / "scgpt" / "integration_260904", integration_dir
+        assert not integration_dir.exists(), "mode가 다르면 서로 충돌하면 안 됨"
+
+
+expect_pass(_check_resolve_output_dir_different_mode_no_collision, "mode가 다르면 같은 날이어도 별도 폴더 (충돌 없음)")
 
 print("\n모든 테스트 완료.")

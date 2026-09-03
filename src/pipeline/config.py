@@ -7,8 +7,9 @@ model / mode 필드를 추가해서 여러 모델·여러 실행 모드를 지�
 """
 
 import logging
+from datetime import date as _date
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 from rich.console import Console
@@ -43,6 +44,39 @@ def load_config(path: str) -> Dict[str, Any]:
     cfg.setdefault("model", DEFAULT_MODEL)
     cfg.setdefault("mode", DEFAULT_MODE)
     return cfg
+
+
+def resolve_run_output_dir(base_output_dir: str, model: str, mode: str, today: Optional[_date] = None) -> Path:
+    """
+    실행마다 output_dir(config.yaml의 값, 예: /workspace/outputs)에 결과가 그대로 쌓이면
+    나중에 어떤 폴더가 어떤 model/mode로 언제 돌린 결과인지 알 수 없어진다. 그래서 실제
+    저장 위치는 이 함수가 정한 base_output_dir/<model>/<mode>_<YYMMDD> 하위 폴더로
+    바꾼다 (예: outputs/scgpt/embed_260904) - model별로 폴더가 먼저 생기고(이미 있으면
+    재사용), 그 안에 mode_날짜 폴더가 생기는 구조. 흔히 쓰는 실험 결과 정리 방식
+    (모델/실행종류/날짜)을 따른 것.
+
+    같은 날 같은 model+mode로 두 번 이상 실행하면 앞의 결과를 덮어쓰지 않도록 _2, _3
+    ... 순번을 붙인다 (파일시스템에 폴더가 실제로 존재하는지만 확인 - 아직 아무것도
+    저장 안 한 "이번 실행"의 폴더 이름을 미리 정하는 것이므로, 정작 실행 도중에 지어지는
+    게 아니라 여기서 한 번에 결정된다).
+
+    today는 테스트에서 날짜를 고정하기 위한 것 - 실제 실행에서는 항상 None(오늘 날짜)으로
+    호출한다.
+    """
+    if today is None:
+        today = _date.today()
+    date_str = today.strftime("%y%m%d")
+
+    model_dir = Path(base_output_dir) / model
+    run_name = f"{mode}_{date_str}"
+    candidate = model_dir / run_name
+    if not candidate.exists():
+        return candidate
+
+    n = 2
+    while (model_dir / f"{run_name}_{n}").exists():
+        n += 1
+    return model_dir / f"{run_name}_{n}"
 
 
 def validate_config(

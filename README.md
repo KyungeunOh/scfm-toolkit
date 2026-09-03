@@ -120,7 +120,16 @@ batch 효과는 얼마나 제거되고 cell type은 잘 구분되는지 평가�
 
 ## 표준 output 구조
 
-실행이 끝나면 `output_dir`에 아래가 자동으로 생성된다.
+`config.yaml`의 `output_dir`는 실제 저장 경로가 아니라 base 디렉터리다. 실행마다
+`run.py`가 `output_dir/<model>/<mode>_<YYMMDD>/`(예: `outputs/scgpt/embed_260904`,
+`outputs/scgpt/integration_260904`) 하위 폴더를 자동으로 만들어서 그 안에 저장한다 —
+model별로 폴더가 먼저 생기고(있으면 재사용) 그 안에 `mode_날짜` 폴더가 생기는, 흔히
+쓰는 실험 결과 정리 방식이다. 같은 날 같은 model+mode를 다시 실행하면 기존 결과를
+덮어쓰지 않고 `_2`, `_3` ... 을 붙인다 (`pipeline/config.py`의
+`resolve_run_output_dir()`). 실제로 어디에 저장됐는지는 실행 시작할 때 콘솔에
+"결과 저장 위치: ..."로 출력된다.
+
+그 최종 폴더 안에는 아래가 자동으로 생성된다.
 
 | 파일 | 내용 |
 |---|---|
@@ -222,4 +231,9 @@ requirements.txt 하단 "Geneformer 어댑터 전용" 구간)을 설치한다 �
       필수로 남아있음 (완전한 mode별 분리는 후속 작업)
 - [ ] query에 label이 없어도 되는 순수 매핑 경로 지원 (위 "현재 알려진 제약" 참고)
 - [ ] `mode: train_head` 구현
-- [ ] 새 task(GRN, Integration, Multiomics, Perturbation 등) 지원은 위 모델 축 검증 이후 — ModelAdapter/run.py를 task에 무관하게 다시 일반화해야 함
+- [ ] 다음 task 후보: GRN(`Tutorial_GRN.ipynb`) — gene embedding 추출용 새 adapter 코드,
+      `networkx`/`gseapy`(Reactome 온라인 API 호출) 새 의존성 필요. Multiomics/Perturbation은
+      더 이후 후보.
+- [x] output 폴더 정리 — `output_dir`를 base로 취급하고 `output_dir/<model>/<mode>_<날짜>/`
+      하위 폴더에 자동 저장 (`pipeline/config.py`의 `resolve_run_output_dir()`, 같은 날 같은
+      model+mode 재실행 시 `_2`, `_3` ... 로 충돌 방지)
