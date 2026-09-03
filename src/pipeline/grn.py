@@ -79,7 +79,11 @@ def cluster_gene_embeddings(gene_embeddings: Dict[str, np.ndarray], resolution: 
     n_pcs = max(2, min(50, X.shape[1] - 1, X.shape[0] - 1))
     sc.pp.pca(gdata, n_comps=n_pcs)
     sc.pp.neighbors(gdata)
-    sc.tl.leiden(gdata, resolution=resolution)
+    # flavor를 명시적으로 고정 - scanpy가 향후 leiden의 기본 backend를 leidenalg에서
+    # igraph로 바꿀 예정이라는 FutureWarning이 실제 GPU 실행에서 확인됨(Phase 14). 고정해두지
+    # 않으면 scanpy를 업그레이드했을 때 같은 데이터에서도 metagene 개수/구성이 조용히
+    # 달라질 수 있어 재현성이 깨진다.
+    sc.tl.leiden(gdata, resolution=resolution, flavor="leidenalg")
     sc.tl.umap(gdata)
 
     n_clusters = gdata.obs["leiden"].nunique()
@@ -223,7 +227,10 @@ def save_metagene_heatmap(score_df, output_path: Path, top_n: Optional[int] = No
     fig_h = max(4.0, plot_df.shape[0] * 0.4)
     g = sns.clustermap(plot_df, cmap="viridis", figsize=(fig_w, fig_h))
     if shown_n < total_n:
-        g.fig.suptitle(f"상위 {shown_n}개 / 전체 {total_n}개 metagene (나머지는 grn_metagene_scores.csv 참고)", y=1.02)
+        # 한글 텍스트는 matplotlib 기본 폰트(DejaVu Sans)에 한글 글리프가 없어 이미지에
+        # 제대로 안 그려지는 문제가 실제 GPU 실행에서 확인됨(Phase 14) - 이미지 안 텍스트는
+        # 영어로 쓴다(콘솔 로그/CSV의 한글 설명은 이 문제와 무관하므로 그대로 둠).
+        g.fig.suptitle(f"Top {shown_n} of {total_n} metagenes shown (see grn_metagene_scores.csv for the rest)", y=1.02)
     g.savefig(output_path, dpi=150)
     plt.close("all")
     logger.info(
@@ -357,9 +364,11 @@ def save_metagene_network(
     nx.draw_networkx_labels(G, pos, font_size=7, ax=ax)
     if weights:
         nx.draw_networkx_edges(G, pos, width=[w * 2 for w in weights], alpha=0.5, ax=ax)
+    # 한글 텍스트는 matplotlib 기본 폰트(DejaVu Sans)에 한글 글리프가 없어 이미지에 제대로
+    # 안 그려지는 문제가 실제 GPU 실행에서 확인됨(Phase 14) - 이미지 안 텍스트는 영어로 쓴다.
     ax.set_title(
         f"{title} (cosine similarity >= {similarity_threshold}, "
-        f"유전자 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개)"
+        f"{G.number_of_nodes()} genes, {G.number_of_edges()} edges)"
     )
     ax.axis("off")
     fig.tight_layout()
