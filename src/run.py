@@ -25,6 +25,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from adapters import get_adapter
 from pipeline.config import ConfigError, load_config, resolve_run_output_dir, validate_config
 from pipeline.data_io import DataValidationError, load_h5ad_full, validate_h5ad
+from pipeline.grn import (
+    cluster_gene_embeddings,
+    enrich_metagenes,
+    get_metagenes,
+    save_enrichment_results,
+    save_metagene_assignments,
+    save_metagene_heatmap,
+    save_metagene_network,
+    score_metagenes,
+)
 from pipeline.integration import evaluate_integration, save_integration_metrics, save_integration_umap
 from pipeline.reference_mapping import knn_label_transfer
 from pipeline.report import (
@@ -71,6 +81,16 @@ STEP_DESCRIPTIONS = {
         4: "임베딩 공간에서 UMAP을 그리고, scib로 batch 통합 품질 지표를 계산합니다.",
         5: "비교 기준선(HVG+PCA, fine-tuning도 scGPT도 없는 단순 방법)을 같은 방식으로 계산합니다.",
         6: "표준 output 구조로 결과를 저장합니다.",
+    },
+    "grn": {
+        1: "config.yaml을 검증합니다.",
+        2: "h5ad 입력을 검증합니다 (셀 수, celltype_col, vocab 매칭률).",
+        3: "사전학습 모델에서 유전자 임베딩을 추출합니다 (세포 forward pass 없이 gene embedding layer만 사용).",
+        4: "유전자 임베딩을 Leiden 클러스터링해서 metagene(유전자 모듈)으로 묶습니다.",
+        5: "각 metagene이 어느 cell type에서 발현이 높은지 점수화합니다.",
+        6: "상위 metagene에 대해 Reactome pathway enrichment를 계산합니다 (온라인 API, 실패해도 계속 진행).",
+        7: "대표 metagene의 유전자 유사도 네트워크를 그립니다.",
+        8: "표준 output 구조로 결과를 저장합니다.",
     },
 }
 
@@ -352,6 +372,100 @@ def run_integration(cfg: dict, adapter, device) -> None:
     console.print(Panel(f"[bold green]완료![/bold green]\n{summary}", border_style="green"))
 
 
+def run_grn(cfg: dict, adapter, device) -> None:
+    """
+    mode: grn - fine-tuning 없이 사전학습 모델의 "유전자" 임베딩(세포 임베딩이 아님)만
+    으로 유전자를 기능적 모듈("metagene")로 묶고, 각 모듈이 어느 cell type에서
+    발현되는지 보고, (가능하면) Reactome pathway enrichment로 그 모듈이 무엇을
+    하는지까지 해석한다 (scGPT tutorials/Tutorial_GRN.ipynb 방식 - GitHub 원본을 fetch해서
+    모델 로딩/gene embedding 추출 부분은 코드를 직접 대조했다).
+
+    신뢰도 표기: pipeline/grn.py 모듈 docstring 참고 - 이 mode의 클러스터링/점수화/
+    네트워크 로직은 저작권 정책상 원본 소스를 그대로 인용하지 못해 요약 정보를 근거로
+    독립적으로 재구현했다. mode: embed/integration만큼 "튜토리얼과 한 줄씩 대조"된
+    상태는 아니라는 뜻 - README에도 이 차이를 명시한다.
+
+    또한 이 mode는 두 가지 새 의존성(networkx, gseapy)이 필요하고 gseapy의
+    pathway enrichment 단계는 온라인(Enrichr) API를 호출한다 - HPC(gnode01)의 실제
+    인터넷 접근 여부는 이 프로젝트에서 아직 확인된 적이 없다. 그래서 enrichment
+    단계는 (1) config의 grn_skip_enrichment로 아예 끌 수 있고, (2) 꺼두지 않아도
+    실패 시 나머지 단계(클러스터링/점수화/네트워크)는 정상적으로 완료되고 결과가
+    저장된다 - 하나의 온라인 API 호출 실패가 전체 실행을 막지 않는다.
+    """
+    output_dir = Path(cfg["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    celltype_col = cfg.get("celltype_col")
+    gene_col = cfg.get("gene_col", "gene_name")
+    resolution = cfg.get("grn_resolution", 40.0)
+    top_n = cfg.get("grn_top_n_metagenes", 10)
+    gene_sets = cfg.get("grn_enrichr_gene_sets", ["Reactome_2022"])
+    organism = cfg.get("grn_enrichr_organism", "Human")
+    skip_enrichment = cfg.get("grn_skip_enrichment", False)
+    similarity_threshold = cfg.get("grn_network_similarity_threshold", 0.5)
+    network_max_genes = cfg.get("grn_network_max_genes", 50)
+
+    _step_banner("grn", 3, "유전자 임베딩 추출")
+    adata = load_h5ad_full(cfg["data_path"])
+    if not celltype_col or celltype_col not in adata.obs.columns:
+        raise ConfigError(
+            f"mode: grn은 data_path h5ad에 celltype_col('{celltype_col}')이 있어야 "
+            f"metagene을 cell type별로 점수화할 수 있습니다."
+        )
+
+    if gene_col in adata.var.columns:
+        genes = adata.var[gene_col].astype(str).tolist()
+    else:
+        genes = adata.var_names.astype(str).tolist()
+
+    gene_embeddings = adapter.extract_gene_embeddings(cfg, genes, device)
+    if len(gene_embeddings) < 3:
+        raise ConfigError(
+            f"vocab에 매칭된 유전자가 {len(gene_embeddings)}개뿐이라 metagene 클러스터링을 "
+            f"할 수 없습니다 (최소 3개 필요). config.yaml의 gene_col/data_path를 확인해주세요."
+        )
+    embed_dim = len(next(iter(gene_embeddings.values())))
+    _step_done(f"{len(gene_embeddings)}/{len(genes)}개 유전자 임베딩 추출 완료 (embed_dim={embed_dim})")
+
+    _step_banner("grn", 4, "Metagene 클러스터링")
+    gdata = cluster_gene_embeddings(gene_embeddings, resolution=resolution)
+    metagenes = get_metagenes(gdata)
+    save_metagene_assignments(metagenes, output_dir)
+    _step_done(f"{len(metagenes)}개 metagene으로 클러스터링 완료")
+
+    _step_banner("grn", 5, "Metagene별 cell type 발현 점수화")
+    score_df = score_metagenes(adata, metagenes, celltype_col, gene_col=gene_col)
+    heatmap_path = save_metagene_heatmap(score_df, output_dir / "grn_metagene_scores.png")
+    _step_done("점수화 완료" + (f", heatmap 저장: {heatmap_path.name}" if heatmap_path else " (계산된 점수가 없어 heatmap 생략)"))
+
+    _step_banner("grn", 6, "Pathway enrichment")
+    if skip_enrichment:
+        _step_done("grn_skip_enrichment: true로 설정되어 건너뜀")
+    else:
+        enrich_results = enrich_metagenes(metagenes, top_n=top_n, gene_sets=gene_sets, organism=organism)
+        enrich_path = save_enrichment_results(enrich_results, output_dir)
+        n_ok = sum(1 for v in enrich_results.values() if v is not None)
+        _step_done(f"{n_ok}/{len(enrich_results)}개 metagene enrichment 성공, 저장: {enrich_path.name}")
+
+    _step_banner("grn", 7, "대표 metagene 네트워크")
+    network_path = None
+    if metagenes:
+        top_cluster_id, top_genes = next(iter(metagenes.items()))
+        network_genes = top_genes[:network_max_genes]
+        network_path = save_metagene_network(
+            gene_embeddings, network_genes, output_dir / "grn_network_top_metagene.png",
+            similarity_threshold=similarity_threshold, title=f"Metagene {top_cluster_id}",
+        )
+    _step_done(f"네트워크 저장: {network_path.name}" if network_path else "네트워크 생략")
+
+    _step_banner("grn", 8, "결과 저장")
+    save_resolved_config(cfg, output_dir)
+    save_environment_report(output_dir)
+
+    summary = f"결과 위치: {output_dir}\nmetagene {len(metagenes)}개 (grn_metagenes.csv)"
+    console.print(Panel(f"[bold green]완료![/bold green]\n{summary}", border_style="green"))
+
+
 def main():
     setup_logging()
 
@@ -393,6 +507,10 @@ def main():
                     f"mode: integration은 batch_key('{batch_key}')가 data_path h5ad의 obs 컬럼에 "
                     f"있어야 합니다. 있는 컬럼: {list(data_obs_columns)[:12]}"
                 )
+        elif mode == "grn":
+            # grn도 integration처럼 h5ad 파일 하나(data_path)를 쓰지만, batch_key는
+            # 필요 없다 - metagene 점수화(Step 5)에 celltype_col만 있으면 된다.
+            validate_h5ad(cfg["data_path"], "Data", cfg.get("celltype_col"), None, vocab_genes)
         _step_done("입력 검증 통과")
 
     except (ConfigError, DataValidationError) as e:
@@ -420,6 +538,8 @@ def main():
         run_embed(cfg, adapter, device)
     elif mode == "integration":
         run_integration(cfg, adapter, device)
+    elif mode == "grn":
+        run_grn(cfg, adapter, device)
     else:
         # pipeline/config.py의 IMPLEMENTED_MODES 검증을 통과했다면 여기 도달할 수 없다 -
         # 도달했다면 IMPLEMENTED_MODES에는 추가했는데 여기 dispatch를 깜빡한 버그.

@@ -10,14 +10,20 @@
 #        전처리/학습 파라미터 중 일부(특히 data_is_raw, n_bins 등 scGPT 전용 항목)는
 #        의미가 없거나 다르게 해석될 수 있음.
 # mode:  finetune_predict(fine-tuning 후 예측) / embed(reference mapping,
-#        fine-tuning 없는 zero-shot) / integration(zero-shot batch 통합 품질 평가,
-#        아래 참고). train_head는 config 구조상 자리만 있고 아직 미구현.
-#        mode: embed/integration일 때는 아래 "학습/추론 파라미터" 대부분이
-#        무시된다 (embed는 knn_k/gene_col만, integration은 n_hvg/gene_col만 씀).
+#        fine-tuning 없는 zero-shot) / integration(zero-shot batch 통합 품질 평가) /
+#        grn(유전자 임베딩을 metagene으로 클러스터링 + pathway enrichment, 아래 참고).
+#        train_head는 config 구조상 자리만 있고 아직 미구현.
+#        mode: embed/integration/grn일 때는 아래 "학습/추론 파라미터" 대부분이
+#        무시된다 (embed는 knn_k/gene_col만, integration은 n_hvg/gene_col만,
+#        grn은 gene_col과 grn_* 항목만 씀).
+#        주의(mode: grn): 아직 requirements.txt에 새로 추가된 networkx/gseapy가
+#        Docker 이미지에 반영되지 않았다면 실행 전 이미지 재빌드가 필요하다 -
+#        README "Gene Regulatory Network 분석 (mode: grn)" 절을 먼저 확인할 것.
 model: scgpt
 #mode: finetune_predict
 #mode: embed
 mode: integration
+#mode: grn
 
 # --- 입력/출력 경로 (컨테이너 내부 경로, 수정 금지) ---
 reference_path: /workspace/data/c_data.h5ad
@@ -68,7 +74,7 @@ amp: true
 # 없어도 예측 자체는 동작합니다(단, 지금은 pipeline/data_io.py의 h5ad 검증 단계가
 # query에도 동일한 celltype_col을 요구합니다 - 순수 미지 데이터 매핑은 README 참고).
 knn_k: 10          # 다수결에 참여할 이웃 수
-gene_col: gene_name  # 유전자 이름이 var의 어느 컬럼/index에 있는지 (scGPT embed_data 인자)
+gene_col: gene_name  # 유전자 이름이 var의 어느 컬럼/index에 있는지 (scGPT embed_data 인자, mode: grn도 동일하게 씀)
 
 # --- mode: integration(zero-shot batch 통합 품질 평가) 전용 - 다른 mode일 때는 무시됨 ---
 # fine-tuning 없이 사전학습 모델 임베딩만으로, 여러 batch(샘플)의 배치 효과가 얼마나
@@ -86,6 +92,12 @@ gene_col: gene_name  # 유전자 이름이 var의 어느 컬럼/index에 있는�
 # 가능은 하지만, 개체 간 차이가 더 전형적인 batch effect라 individual을 선택함.)
 # 다른 데이터로 바꿀 경우 이 값도 그 데이터의 실제 obs 컬럼에 맞게 다시 확인 필요:
 #   python -c "import anndata as ad; print(ad.read_h5ad('/workspace/data/<파일>.h5ad', backed='r').obs.columns.tolist())"
+#
+# 실행 결과 참고(2026-09-03, gnode01 GPU 실행 완료): 이 데이터+이 batch_key 조합에서는
+# scGPT zero-shot(avg_bio=0.404, avg_batch=0.883)이 단순 HVG+PCA baseline
+# (avg_bio=0.453, avg_batch=0.892)보다 두 지표 모두 소폭 낮게 나옴 - 버그가 아니라
+# 실제 결과(claude.ai 프로젝트 문서 Phase 10 참고). c_data.h5ad가 이미 vocab 매칭용
+# 3000유전자로 줄어있어 HVG 선택이 사실상 무의미했던 점 등이 원인으로 추정됨.
 data_path: /workspace/data/c_data.h5ad
 batch_key: "Sample Characteristic[individual]"
 # n_hvg 참고: c_data.h5ad는 이미 vocab 매칭용으로 3000개 유전자로 줄여진 파일이라
@@ -93,6 +105,38 @@ batch_key: "Sample Characteristic[individual]"
 # 같다(HVG 선택이 유의미하게 줄이지 않음) - 원본 데이터가 큰 raw 데이터라면 이 값을
 # 낮춰서(예: 1500) 실제로 서브셋하는 효과를 볼 수 있다.
 n_hvg: 3000
+
+# --- mode: grn(유전자 임베딩 클러스터링 + pathway enrichment) 전용 - 다른 mode일 때는 무시됨 ---
+# fine-tuning 없이 사전학습 모델의 "유전자" 임베딩(세포 임베딩이 아님)만으로 유전자를
+# 기능적 모듈("metagene")로 묶고, 각 모듈이 어느 cell type에서 발현되는지 보고,
+# Reactome pathway enrichment로 그 모듈이 무엇을 하는지 해석합니다 (scGPT
+# tutorials/Tutorial_GRN.ipynb 방식 - GitHub 원본을 fetch해서 모델 로딩/gene embedding
+# 추출 부분은 코드를 직접 대조했으나, 클러스터링/점수화/네트워크 세부 로직은 저작권
+# 정책상 원본 코드를 그대로 인용할 수 없어 요약 정보를 근거로 독립 재구현했습니다 -
+# mode: embed/integration만큼 "튜토리얼과 100% 동일 검증"된 상태는 아닙니다).
+#
+# 실행 전 확인할 것 (README "Gene Regulatory Network 분석 (mode: grn)" 절 참고):
+#   1. requirements.txt에 새로 추가된 networkx==3.4.2, gseapy==1.0.4가 실제 Docker
+#      이미지에 반영되도록 이미지를 재빌드해야 합니다 (아직 안 했다면 mode: grn은
+#      ModuleNotFoundError로 실패합니다).
+#   2. gseapy의 pathway enrichment 단계는 Enrichr(maayanlab.cloud) 온라인 API를
+#      호출합니다 - gnode01이 실제로 인터넷에 접근 가능한지 아직 확인된 적이
+#      없습니다. 안 되더라도 아래 grn_skip_enrichment: true로 그 단계만 끄면 나머지
+#      (클러스터링/점수화/네트워크)는 정상 동작합니다. 꺼두지 않아도 API 호출이
+#      실패하면 그 metagene만 건너뛰고 나머지는 계속 진행하도록 코드에서 처리했습니다.
+#
+# data_path는 위 mode: integration 절에서 이미 지정한 값(c_data.h5ad)을 그대로
+# 재사용합니다 - 같은 config.yaml을 여러 mode가 공유하는 이 프로젝트의 방식과
+# 동일하고(batch_key와 달리 grn은 celltype_col만 있으면 되므로 c_data.h5ad를 그대로
+# 쓸 수 있음을 확인함), YAML에서 같은 키를 두 번 쓰면 나중 값이 조용히 덮어써서
+# 혼란을 줄 수 있어 여기서는 중복 선언하지 않았습니다.
+grn_resolution: 40          # Leiden 클러스터링 resolution - 클수록 더 잘게(더 많은 metagene으로) 나뉨 (튜토리얼 예시값)
+grn_top_n_metagenes: 10     # 유전자 수가 많은 순으로 상위 몇 개 metagene까지 pathway enrichment를 시도할지
+grn_skip_enrichment: false  # true로 설정하면 gseapy 온라인 API 호출(Step 6)을 아예 건너뜀
+grn_enrichr_gene_sets: ["Reactome_2022"]  # gseapy.enrichr()에 넘길 pathway 데이터베이스 목록
+grn_enrichr_organism: "Human"
+grn_network_similarity_threshold: 0.5  # 대표 metagene 네트워크에서 이 값 이상 cosine similarity인 유전자 쌍만 엣지로 표시
+grn_network_max_genes: 50   # 네트워크 시각화가 너무 커지지 않도록 대표 metagene에서 자를 최대 유전자 수
 
 # --- 예측 신뢰도 경고 ---
 # 예측 확률(softmax 최대값)이 이 값보다 낮은 셀은 "불확실"로 표시됩니다

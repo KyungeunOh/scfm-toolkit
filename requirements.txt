@@ -161,6 +161,27 @@ dnspython==2.3.0
 huggingface_hub==1.8.0
 hf-xet==1.5.0
 
+# --- GRN(mode: grn) 전용 - 2026-09 추가 ---
+# scGPT Tutorial_GRN.ipynb 방식(유전자 임베딩 클러스터링 + pathway enrichment)을
+# 재구현하는 데 필요한 새 의존성. 둘 다 이전까지는 이 프로젝트에 없던 패키지라
+# 이 requirements.txt를 반영하려면 Docker 이미지 재빌드가 필요함(README 참고).
+#
+# networkx: 유전자 유사도 네트워크 그래프 구성용. GitHub의 pyproject.toml을 태그별로
+#   직접 확인한 결과 networkx의 main(개발) 브랜치는 이미 requires-python>=3.12로
+#   올라가 있어 이 프로젝트의 Python 3.10.11 이미지에 안 맞는다(scib 때와 동일한
+#   함정) - 3.10을 지원하는 마지막 계열인 3.4.2로 고정.
+# gseapy: Reactome pathway enrichment(gp.enrichr()) 호출용. 최신(1.3.1)도 확인했으나
+#   HPC pip 미러가 "오래된 시점에 멈춰있는 미러"라는 이 파일 맨 위 경고를 고려해,
+#   더 오래됐고(따라서 미러에 있을 가능성이 더 높고) manylinux cp310 prebuilt wheel이
+#   확인된 1.0.4로 보수적으로 고정함 (gseapy는 Rust 확장을 빌드에 쓰지만 이 버전은
+#   prebuilt wheel이 있어 소스 빌드/Rust 툴체인이 필요 없음 - Geneformer 때 겪은
+#   "C 확장 소스 빌드 필요" 함정을 피하기 위해 의도적으로 최신 버전을 피함).
+#   enrichr()는 Enrichr(maayanlab.cloud) 온라인 API를 호출한다 - gnode01의 실제
+#   인터넷 접근 여부는 아직 확인된 적이 없음(README "알려진 제약" 참고, 실패해도
+#   나머지 mode: grn 결과는 정상 저장되도록 코드에서 처리함).
+networkx==3.4.2
+gseapy==1.0.4
+
 
 # =========================================================================
 # Geneformer 어댑터 전용 (선택) - src/adapters/geneformer_adapter.py

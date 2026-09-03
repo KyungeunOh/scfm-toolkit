@@ -14,6 +14,12 @@ import numpy as np
 
 from pipeline.config import ConfigError, resolve_run_output_dir, validate_config
 from pipeline.data_io import DataValidationError, load_h5ad_full, validate_h5ad
+from pipeline.grn import (
+    enrich_metagenes,
+    get_metagenes,
+    save_enrichment_results,
+    save_metagene_assignments,
+)
 from pipeline.reference_mapping import knn_label_transfer
 from pipeline.report import flag_low_confidence, save_metrics
 
@@ -115,6 +121,25 @@ expect_fail(
                              adapter_required_keys=integration_required,
                              adapter_path_keys=integration_paths),
     ConfigError, "mode=integration인데 batch_key가 config.yaml에 없음",
+)
+
+section("4-4. config validation - mode: grn (유전자 임베딩 클러스터링, 구현됨)")
+# ScGPTAdapter.extra_required_config_keys("grn")이 반환하는 것과 동일한 키(data_path만,
+# integration과 달리 batch_key는 불필요)를 흉내낸다.
+grn_cfg = dict(good_cfg, mode="grn", data_path=str(FIXTURES / "reference.h5ad"))
+grn_required = ["reference_path", "query_path", "model_dir", "data_path"]
+grn_paths = ["reference_path", "query_path", "model_dir", "data_path"]
+expect_pass(
+    lambda: validate_config(grn_cfg, adapter_required_keys=grn_required, adapter_path_keys=grn_paths),
+    "mode=grn은 정상적으로 실행 가능해야 함 (batch_key는 integration과 달리 불필요)",
+)
+
+section("4-5. config validation - mode: grn인데 data_path가 없음")
+grn_cfg_missing_data_path = dict(good_cfg, mode="grn")
+expect_fail(
+    lambda: validate_config(grn_cfg_missing_data_path, adapter_required_keys=grn_required,
+                             adapter_path_keys=grn_paths),
+    ConfigError, "mode=grn인데 data_path가 config.yaml에 없음",
 )
 
 # ---------------------------------------------------------------------
@@ -312,5 +337,95 @@ def _check_resolve_output_dir_different_mode_no_collision():
 
 
 expect_pass(_check_resolve_output_dir_different_mode_no_collision, "mode가 다르면 같은 날이어도 별도 폴더 (충돌 없음)")
+
+# ---------------------------------------------------------------------
+# mode: grn 관련 - pipeline/grn.py의 순수 로직만(scanpy/networkx/gseapy 없이) 검증.
+# cluster_gene_embeddings/score_metagenes/save_metagene_heatmap/save_metagene_network는
+# scanpy·networkx가 필요해 이 개발 환경(둘 다 미설치)에서는 함수 호출까지 못 하고
+# py_compile로만 확인했다 - 아래는 그 외에 순수 python/pandas만으로 동작하는 부분.
+section("16. grn.get_metagenes - leiden 클러스터 id별로 유전자 그룹핑 + 크기순 정렬")
+
+
+class _FakeGeneAdata:
+    """cluster_gene_embeddings()가 반환하는 AnnData의 get_metagenes()가 실제로 쓰는
+    부분(obs_names, obs["leiden"])만 흉내낸 스텁 - scanpy 없이 get_metagenes() 자체의
+    그룹핑/정렬 로직만 검증하기 위함."""
+
+    def __init__(self, gene_to_cluster: dict):
+        self.obs_names = list(gene_to_cluster.keys())
+        self.obs = {"leiden": list(gene_to_cluster.values())}
+
+
+def _check_get_metagenes():
+    gdata = _FakeGeneAdata({
+        "GENE_A": "0", "GENE_B": "0", "GENE_C": "0",
+        "GENE_D": "1",
+        "GENE_E": "2", "GENE_F": "2",
+    })
+    metagenes = get_metagenes(gdata)
+    assert list(metagenes.keys()) == ["0", "2", "1"], f"유전자 수 많은 순 정렬이어야 함: {list(metagenes.keys())}"
+    assert metagenes["0"] == ["GENE_A", "GENE_B", "GENE_C"]
+    assert metagenes["1"] == ["GENE_D"]
+    assert metagenes["2"] == ["GENE_E", "GENE_F"]
+
+
+expect_pass(_check_get_metagenes, "클러스터 id -> 유전자 리스트, 유전자 수 많은 클러스터부터 정렬")
+
+section("17. grn.save_metagene_assignments - metagene 목록 CSV로 저장")
+
+
+def _check_save_metagene_assignments():
+    metagenes = {"0": ["GENE_A", "GENE_B"], "1": ["GENE_C"]}
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = save_metagene_assignments(metagenes, Path(tmp))
+        assert out_path.exists()
+        content = out_path.read_text(encoding="utf-8")
+        assert "metagene,n_genes,genes" in content
+        assert "0,2,GENE_A;GENE_B" in content
+        assert "1,1,GENE_C" in content
+
+
+expect_pass(_check_save_metagene_assignments, "grn_metagenes.csv에 metagene별 유전자 수/목록이 저장됨")
+
+section("18. grn.enrich_metagenes - gseapy 미설치 시 에러 없이 전부 None으로 건너뜀")
+
+
+def _check_enrich_metagenes_no_gseapy():
+    # 이 개발 환경에는 gseapy가 없으므로(요구사항), ImportError 폴백 경로가 실제로
+    # 실행된다 - "gseapy 미설치/HPC 인터넷 접근 불가로 enrichment 실패"를 흉내내는
+    # 실전 상황과 정확히 같은 코드 경로를 검증하는 것.
+    metagenes = {"0": ["GENE_A", "GENE_B", "GENE_C"], "1": ["GENE_D", "GENE_E", "GENE_F"]}
+    results = enrich_metagenes(metagenes, top_n=10)
+    assert results == {"0": None, "1": None}, results
+
+
+expect_pass(_check_enrich_metagenes_no_gseapy, "gseapy가 없어도(또는 API 실패해도) 예외 없이 전부 None 반환")
+
+
+def _check_enrich_metagenes_respects_top_n():
+    metagenes = {"0": ["A", "B", "C"], "1": ["D", "E", "F"], "2": ["G", "H", "I"]}
+    results = enrich_metagenes(metagenes, top_n=1)
+    assert list(results.keys()) == ["0"], f"top_n=1이면 첫 번째 metagene만 시도해야 함: {results}"
+
+
+expect_pass(_check_enrich_metagenes_respects_top_n, "top_n으로 시도할 metagene 개수를 제한함")
+
+section("19. grn.save_enrichment_results - 전부 실패(None)해도 헤더만 있는 CSV는 생성됨")
+
+
+def _check_save_enrichment_results_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = save_enrichment_results({"0": None, "1": None}, Path(tmp))
+        assert out_path.exists()
+        df = pd.read_csv(out_path)
+        assert len(df) == 0
+        assert list(df.columns) == ["metagene", "term", "p_value", "adjusted_p_value", "genes"]
+
+
+expect_pass(
+    _check_save_enrichment_results_empty,
+    "enrichment 전부 실패해도 grn_enrichment.csv는 헤더만 있는 빈 파일로 생성됨 "
+    "(grn_skip_enrichment=true로 '아예 시도 안 함'과 구분하기 위한 설계)",
+)
 
 print("\n모든 테스트 완료.")

@@ -11,7 +11,7 @@ scGPT 관련 세부사항(토큰화 방식, binning, TransformerModel 파라미�
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -47,15 +47,19 @@ class ScGPTAdapter(ModelAdapter):
     #: 지정하면 run.py가 fine-tuning을 건너뛰고 이 가중치를 바로 불러와 predict한다.
 
     def extra_required_config_keys(self, mode: str):
-        """mode: integration은 reference/query 쌍이 아니라 batch_key가 있는
-        h5ad 파일 하나(data_path)를 쓴다 - base.py의 extra_required_config_keys
-        docstring 참고."""
+        """mode: integration/grn은 reference/query 쌍이 아니라 h5ad 파일 하나
+        (data_path)를 쓴다 - base.py의 extra_required_config_keys docstring 참고.
+        integration은 추가로 batch_key(배치 구분 컬럼)도 필요하지만, grn은 유전자
+        임베딩 자체는 데이터 없이(vocab+가중치만으로) 뽑고 metagene 점수화 단계에서만
+        data_path의 celltype_col을 쓰므로 batch_key는 필요 없다."""
         if mode == "integration":
             return ["data_path", "batch_key"]
+        if mode == "grn":
+            return ["data_path"]
         return []
 
     def extra_path_config_keys(self, mode: str):
-        if mode == "integration":
+        if mode in ("integration", "grn"):
             return ["data_path"]
         return []
 
@@ -478,6 +482,50 @@ class ScGPTAdapter(ModelAdapter):
             use_fast_transformer=False,
         )
         return np.asarray(embed_adata.X)
+
+    # ------------------------------------------------------------------
+    # 유전자 임베딩 추출 (mode: grn에서 사용)
+    # ------------------------------------------------------------------
+    def extract_gene_embeddings(self, cfg: dict, genes: List[str], device) -> Dict[str, np.ndarray]:
+        """
+        mode: grn 전용 - Tutorial_GRN.ipynb 방식(GitHub 원본 fetch로 직접 확인):
+        model.encoder()가 gene token embedding layer라서, 세포 데이터를 forward pass에
+        태울 필요 없이 gene_id 텐서 하나만 넣으면 바로 임베딩 벡터를 얻는다(cheap한
+        embedding lookup, transformer 인코더 전체를 안 거침).
+
+        load_model()을 그대로 재사용한다 - num_types(분류 head 크기)는 GRN에서 전혀
+        쓰이지 않으므로 더미 값(1)을 넘긴다. 어차피 사전학습 체크포인트에는 분류 head
+        가중치가 없어서(annotation처럼 fine-tune된 게 아니라 순수 pretrained 체크포인트)
+        load_model()의 partial-load(Wqkv→in_proj 리매핑 포함) 경로가 그대로 적용되고,
+        분류 head는 항상 무작위 초기화 상태로 남는다 - 여기선 model.encoder()만 쓰므로
+        문제되지 않는다.
+        """
+        from scgpt.tokenizer.gene_tokenizer import GeneVocab
+
+        model_dir = Path(cfg["model_dir"])
+        vocab = GeneVocab.from_file(model_dir / "vocab.json")
+        for s in ["<pad>", "<cls>", "<eoc>"]:
+            if s not in vocab:
+                vocab.append_token(s)
+        with open(model_dir / "args.json") as f:
+            model_configs = json.load(f)
+
+        model = self.load_model(cfg, num_types=1, device=device, vocab=vocab, model_configs=model_configs)
+        model.eval()
+
+        vocab.set_default_index(vocab["<pad>"])
+        genes_in_vocab = [g for g in dict.fromkeys(genes) if g in vocab]
+        n_skipped = len(set(genes)) - len(genes_in_vocab)
+        if n_skipped:
+            logger.info(f"vocab에 없는 유전자 {n_skipped}개 제외")
+
+        gene_ids = np.array(vocab(genes_in_vocab), dtype=int)
+        with torch.no_grad():
+            embeddings = model.encoder(torch.tensor(gene_ids, dtype=torch.long).to(device))
+        embeddings = embeddings.detach().cpu().numpy()
+
+        logger.info(f"유전자 임베딩 {len(genes_in_vocab)}개 추출 완료 (embed_dim={embeddings.shape[1]})")
+        return {g: embeddings[i] for i, g in enumerate(genes_in_vocab)}
 
     # ------------------------------------------------------------------
     # fine-tuned 모델 저장/불러오기 (재사용 경로에서 run.py가 호출)

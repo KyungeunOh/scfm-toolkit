@@ -3,8 +3,8 @@
 여러 single-cell foundation model(scFM)을 비전문가도 h5ad 파일과 `config.yaml`만으로
 쉽게 실행할 수 있게 하는 재현 가능한 toolkit. annotation task 기준으로 scGPT, Geneformer
 두 모델을 지원하고(`config.yaml`의 `model:` 값만 바꾸면 됨), scGPT는 fine-tuning 없는
-zero-shot task도 두 가지 지원한다: reference mapping(`mode: embed`), batch 통합 품질
-평가(`mode: integration`).
+zero-shot task도 세 가지 지원한다: reference mapping(`mode: embed`), batch 통합 품질
+평가(`mode: integration`), 유전자 임베딩 기반 GRN/모듈 분석(`mode: grn`).
 
 ## 구조
 
@@ -21,6 +21,9 @@ src/
                             주어지면 어떤 adapter의 embed() 결과에도 재사용 가능)
     integration.py           mode: integration에서 쓰는 batch 통합 품질 평가 (UMAP 저장 +
                             scib 기반 정량 지표 - 마찬가지로 모델 무관)
+    grn.py                   mode: grn에서 쓰는 유전자 임베딩 클러스터링/점수화/네트워크/
+                            pathway enrichment (모델 무관 - adapter.extract_gene_embeddings()가
+                            반환하는 Dict[유전자, 벡터]만 있으면 어떤 모델에도 재사용 가능)
     report.py               표준 output 저장 (predictions, metrics, 예측 신뢰도 경고,
                             confusion matrix, resolved_config, environment report)
   adapters/               모델별 구현 (scGPT/Geneformer 세부사항은 전부 여기에만 있음)
@@ -72,6 +75,10 @@ finetune_predict와 동일한 표준 output 구조(`predictions.csv`, `metrics.j
 (`src/adapters/scgpt_adapter.py`, 내부적으로 scGPT의 `scg.tasks.embed_data()`를 그대로
 사용), Geneformer는 아직 `mode: embed`를 지원하지 않는다(명확한 에러로 안내됨).
 
+**GPU 실행 검증 완료** (2026-09-03, gnode01 RTX 3090): accuracy 73.89%(9951/13468) —
+fine-tuned annotation(87.6%)보다 낮은 건 zero-shot의 정상적인 트레이드오프. 공식
+튜토리얼 코드와 한 줄씩 대조해서 구현이 원본과 일치함도 별도로 확인했다.
+
 ## Zero-shot Batch Integration (mode: integration)
 
 fine-tuning 없이, 사전학습 모델 임베딩만으로 여러 batch(샘플)의 데이터를 통합했을 때
@@ -79,8 +86,7 @@ batch 효과는 얼마나 제거되고 cell type은 잘 구분되는지 평가�
 `tutorials/zero-shot/Tutorial_ZeroShot_Integration.ipynb`와 동일한 방식 - GitHub 원본
 코드를 직접 대조해서 구현). `config.yaml`에서 `mode: integration`으로 지정하고,
 `data_path`(여러 batch가 섞인 h5ad 파일 하나), `batch_key`(배치/샘플 구분 obs 컬럼),
-`n_hvg`(기본 3000)를 설정한다. reference/query 구분이 없다는 점이 다른 두 mode와
-다르다.
+`n_hvg`(기본 3000)를 설정한다. reference/query 구분이 없다는 점이 다른 mode와 다르다.
 
 내부적으로 highly variable gene을 선택한 뒤(`scanpy` `flavor=seurat_v3` - raw count
 데이터 전제) scGPT로 zero-shot 임베딩을 뽑고, **비교 기준선으로 fine-tuning도 scGPT도
@@ -99,17 +105,67 @@ batch 효과는 얼마나 제거되고 cell type은 잘 구분되는지 평가�
   그대로 쓰면 안 되고, 실행 전에 실제 데이터를 확인해야 한다 (`config.yaml`의 해당
   절 주석에 확인 명령 포함).
 - `data_path`의 `adata.X`가 정규화/log1p된 상태면 `seurat_v3` HVG 선택 결과가
-  이상해질 수 있다 (raw count 전제).
+  이상해질 수 있다 (raw count 전제) — 실제로 `c_data.h5ad`는 정규화된 상태라 실행 시
+  `UserWarning`이 뜨지만 실행 자체는 정상 완료된다.
 - `mode: integration`을 위해 `config.yaml`에 필요한 키(`data_path`, `batch_key`)를
   추가로 검증하지만, 다른 mode용 키(`reference_path`, `n_bins` 등)도 여전히 형식상
   필수로 요구된다 (이 프로젝트는 `config.yaml` 하나를 여러 mode가 공유하는 사용
   패턴이라 실제로는 문제되지 않음 - 아래 로드맵 참고).
-- `scib==1.1.7`이 `requirements.txt`에 이미 있고 이 값으로 빌드된 Docker 이미지가
-  annotation/embed 두 mode 모두 GPU에서 이미 실행 검증됐으므로 별도 설치는 필요
-  없을 것으로 강하게 추정되지만, `mode: integration` 자체(HVG 선택 → embed →
-  scib 지표 계산 전체 흐름)는 아직 GPU에서 실제로 돌려보지 못했다 (아래 로드맵 참고).
 
-## 예측 신뢰도 경고
+**GPU 실행 검증 완료** (2026-09-03, gnode01 RTX 3090, `c_data.h5ad` 7844개 세포,
+`batch_key: "Sample Characteristic[individual]"`): scGPT zero-shot
+`avg_bio=0.404`/`avg_batch=0.883`, HVG+PCA baseline `avg_bio=0.453`/`avg_batch=0.892` —
+**이 데이터+이 batch_key 조합에서는 baseline이 scGPT zero-shot보다 두 지표 모두 소폭
+우세**했다. 버그가 아니라 실제 결과로 확인함(구현 자체는 튜토리얼과 대조 검증됨) —
+`c_data.h5ad`가 이미 vocab 매칭용 3000유전자로 줄어있어 HVG 선택이 사실상 무의미했던
+점, batch effect 자체가 약한 데이터였던 점 등이 원인으로 추정된다. 다른 `batch_key`나
+fine-tuned 임베딩으로 재시도하면 다른 결과가 나올 수 있다(아직 미시도).
+
+## Gene Regulatory Network 분석 (mode: grn)
+
+fine-tuning 없이, 사전학습 모델의 **유전자** 임베딩(세포 임베딩이 아님)만으로 유전자를
+기능적 모듈("metagene")로 클러스터링하고, 각 모듈이 어느 cell type에서 발현되는지 보여
+주고, Reactome pathway enrichment로 그 모듈이 생물학적으로 무엇을 하는지 해석한다
+(scGPT `Tutorial_GRN.ipynb`와 같은 방식). `config.yaml`에서 `mode: grn`으로 지정하고,
+`data_path`(다른 mode와 공유), `celltype_col`, `gene_col`을 쓰고, 이 mode 전용으로
+`grn_resolution`(Leiden 클러스터링 resolution, 기본 40) / `grn_top_n_metagenes`(기본
+10) / `grn_skip_enrichment`(기본 false) / `grn_enrichr_gene_sets`(기본
+`["Reactome_2022"]`) / `grn_enrichr_organism`(기본 `"Human"`) /
+`grn_network_similarity_threshold`(기본 0.5) / `grn_network_max_genes`(기본 50)를
+설정한다.
+
+| 파일 | 내용 |
+|---|---|
+| `grn_metagenes.csv` | metagene(클러스터) id, 유전자 수, 유전자 목록 |
+| `grn_metagene_scores.png` | metagene x cell type 발현 점수 heatmap (clustermap) |
+| `grn_enrichment.csv` | 상위 metagene별 Reactome pathway enrichment 결과 (term, p-value 등) |
+| `grn_network_top_metagene.png` | 가장 큰 metagene의 유전자 간 cosine similarity 네트워크 |
+| `resolved_config.yaml`, `environment.json` | 다른 mode와 동일 |
+
+**실행 전 필수 확인 사항**:
+1. **Docker 이미지 재빌드 필요.** 이 mode를 위해 `requirements.txt`에 `networkx==3.4.2`,
+   `gseapy==1.0.4`를 새로 추가했다 — 아직 이 값으로 이미지를 다시 빌드하지 않았다면
+   `mode: grn`은 `ModuleNotFoundError`로 바로 실패한다. 두 패키지 다 순수 pip 설치
+   패키지(추가 시스템 라이브러리나 컴파일러 불필요, `gseapy`도 1.0.4는 prebuilt wheel이
+   있어 Rust 툴체인이 필요 없도록 버전을 골랐다 - Geneformer의 `accumulation-tree` 삽질을
+   피하기 위한 의도적 선택)라 재빌드 자체의 리스크는 낮지만, HPC pip 미러가 정확히 이
+   버전들을 갖고 있는지는 실제로 재빌드해봐야 확인된다.
+2. **HPC 인터넷 접근 여부 미확인.** `gseapy.enrichr()`는 Enrichr(maayanlab.cloud) 온라인
+   API를 호출한다 — `gnode01`이 실제로 외부 인터넷에 접근 가능한지 이 프로젝트에서 아직
+   확인된 적이 없다. 안 되더라도 `grn_skip_enrichment: true`로 그 단계(Step 6)만 끄면
+   나머지(클러스터링/점수화/네트워크)는 정상 동작하도록 설계했고, 꺼두지 않았는데 API 호출이
+   실패해도 그 metagene만 건너뛰고 나머지는 계속 진행한다(전체 실행이 죽지 않음).
+
+**검증 신뢰도가 다른 mode보다 낮다는 점을 명시**: `mode: embed`/`mode: integration`은
+공식 튜토리얼 코드를 GitHub에서 직접 fetch해서 한 줄씩 대조하며 구현했지만, 이 mode의
+클러스터링/점수화/네트워크 로직(`pipeline/grn.py`)은 저작권 정책상 원본
+`scgpt.tasks.grn.GeneEmbedding`의 소스 코드를 그대로 인용할 수 없어서, 요약된 설명을
+근거로 독립적으로 재구현했다 (모델 가중치 로딩과 gene embedding 추출 부분은 원본 코드를
+직접 대조 확인함 - 이 부분의 신뢰도는 다른 mode와 동일). 알고리즘 큰 흐름(Leiden
+클러스터링 → metagene → cell type 점수화 → pathway enrichment)은 원본과 동일하지만,
+점수 정규화 축 같은 세부 구현까지 100% 동일하다고 보증하지는 않는다.
+
+**아직 GPU에서 실행 검증하지 못했다** (Docker 이미지 재빌드가 먼저 필요 - 위 참고).
 
 ## 예측 신뢰도 경고
 
@@ -129,7 +185,8 @@ model별로 폴더가 먼저 생기고(있으면 재사용) 그 안에 `mode_날
 `resolve_run_output_dir()`). 실제로 어디에 저장됐는지는 실행 시작할 때 콘솔에
 "결과 저장 위치: ..."로 출력된다.
 
-그 최종 폴더 안에는 아래가 자동으로 생성된다.
+그 최종 폴더 안에는 mode에 따라 위 각 절의 표에 있는 파일들이 자동으로 생성된다.
+`finetune_predict`/`embed` 공통으로는 다음이 저장된다:
 
 | 파일 | 내용 |
 |---|---|
@@ -137,7 +194,7 @@ model별로 폴더가 먼저 생기고(있으면 재사용) 그 안에 `mode_날
 | `metrics.json` | 전체 accuracy 요약(label 있을 때) + 예측 신뢰도 요약(항상) |
 | `per_class_metrics.csv` | label이 있을 경우 클래스별 precision/recall/f1 |
 | `confusion_matrix.png` | label이 있을 경우 confusion matrix |
-| `finetuned_model.pt` (scGPT) / `finetuned_model/` (Geneformer) | fine-tune된 모델 (재사용 가능, 위 "Fine-tuned 모델 재사용" 참고) |
+| `finetuned_model.pt` (scGPT) / `finetuned_model/` (Geneformer) | fine-tune된 모델 (재사용 가능, 위 "Fine-tuned 모델 재사용" 참고, finetune_predict 전용) |
 | `resolved_config.yaml` | 기본값까지 채워서 실제로 사용된 config 전체 (재현성) |
 | `environment.json` | 라이브러리 버전, GPU, git commit (재현성) |
 
@@ -212,28 +269,25 @@ requirements.txt 하단 "Geneformer 어댑터 전용" 구간)을 설치한다 �
       단, 위 "Geneformer 지원 (검증 필요)" 참고: 실제 geneformer 라이브러리로 실행 검증은 아직 안 됨)
 - [ ] Geneformer adapter를 실제 환경(geneformer 설치, raw count h5ad, 사전학습 체크포인트)에서
       end-to-end 실행 검증
-- [x] `mode: embed` 구현 (scGPT reference mapping, `Tutorial_Reference_Mapping.ipynb` 기반) —
-      위 "Reference Mapping (mode: embed)" 절의 알려진 제약(query도 label 필요) 참고
-- [x] `mode: embed`를 GPU 환경에서 실제 h5ad로 end-to-end 실행 검증 — gnode01(RTX 3090)에서
-      실행 완료, accuracy 73.89%(9951/13468). fine-tuned annotation(87.6%)보다 낮은 건
-      zero-shot의 정상적인 트레이드오프 (같은 데이터로 실측 비교함, 버그 아님 — 공식
-      튜토리얼 코드와 한 줄씩 대조해서 구현이 원본과 일치함도 확인)
-- [x] 세 번째 task 추가: Zero-shot Batch Integration (`mode: integration`, scGPT
-      `Tutorial_ZeroShot_Integration.ipynb` 기반, scib 지표 + HVG/PCA 베이스라인 비교) —
-      코드 완료, GPU 실행 검증 전 (위 "Zero-shot Batch Integration" 절 참고)
-- [ ] `mode: integration`을 GPU 환경에서 실제 h5ad로 end-to-end 실행 검증 (scib/scanpy가
-      없는 개발 환경이라 py_compile + ABC 스텁 검증까지만 함 - embed_data() 관련 로직과
-      마찬가지로 실제 실행은 아직 못 해봄)
+- [x] `mode: embed` 구현 + **GPU 실행 검증 완료** (scGPT reference mapping,
+      `Tutorial_Reference_Mapping.ipynb` 기반, accuracy 73.89% — 위 "Reference Mapping" 절 참고)
+- [x] `mode: integration` 구현 + **GPU 실행 검증 완료** (scGPT
+      `Tutorial_ZeroShot_Integration.ipynb` 기반, scib 지표 + HVG/PCA 베이스라인 비교 — 위
+      "Zero-shot Batch Integration" 절 참고. baseline이 scGPT zero-shot을 소폭 앞선 실제
+      결과 확인, 버그 아님)
+- [x] 네 번째 task 추가: GRN/유전자 모듈 분석 (`mode: grn`, scGPT `Tutorial_GRN.ipynb` 기반,
+      metagene 클러스터링 + cell type 점수화 + Reactome pathway enrichment) — 코드 완료,
+      **Docker 이미지 재빌드 및 GPU 실행 검증 전** (위 "Gene Regulatory Network 분석" 절의
+      실행 전 필수 확인 사항 참고)
 - [x] (부분) mode별로 다른 config 필수 키 검증 — `ModelAdapter.extra_required_config_keys(mode)`/
-      `extra_path_config_keys(mode)` 훅을 추가해서 `mode: integration`의 `data_path`/`batch_key`는
-      제대로 필수 항목으로 검증됨. 다만 기존 `required_config_keys`(mode 무관 공통)는 그대로라,
-      `embed`/`integration`에서도 여전히 `n_bins`/`max_seq_len`/`epochs` 등 무관한 키가 형식상
-      필수로 남아있음 (완전한 mode별 분리는 후속 작업)
+      `extra_path_config_keys(mode)` 훅을 추가해서 `mode: integration`/`mode: grn`의
+      `data_path`(+`batch_key`)는 제대로 필수 항목으로 검증됨. 다만 기존
+      `required_config_keys`(mode 무관 공통)는 그대로라, `embed`/`integration`/`grn`에서도
+      여전히 `n_bins`/`max_seq_len`/`epochs` 등 무관한 키가 형식상 필수로 남아있음 (완전한
+      mode별 분리는 후속 작업)
 - [ ] query에 label이 없어도 되는 순수 매핑 경로 지원 (위 "현재 알려진 제약" 참고)
 - [ ] `mode: train_head` 구현
-- [ ] 다음 task 후보: GRN(`Tutorial_GRN.ipynb`) — gene embedding 추출용 새 adapter 코드,
-      `networkx`/`gseapy`(Reactome 온라인 API 호출) 새 의존성 필요. Multiomics/Perturbation은
-      더 이후 후보.
+- [ ] Multiomics/Perturbation tutorial 기반 task 추가 (더 이후 후보)
 - [x] output 폴더 정리 — `output_dir`를 base로 취급하고 `output_dir/<model>/<mode>_<날짜>/`
       하위 폴더에 자동 저장 (`pipeline/config.py`의 `resolve_run_output_dir()`, 같은 날 같은
-      model+mode 재실행 시 `_2`, `_3` ... 로 충돌 방지)
+      model+mode 재실행 시 `_2`, `_3` ... 로 충돌 방지) — 실제 GPU 실행에서도 정상 동작 확인

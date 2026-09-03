@@ -17,6 +17,12 @@ scGPT는 첫 번째 구현체(scgpt_adapter.py)이고, Geneformer(geneformer_ada
   될지도 adapter가 정한다).
 - load_model/prepare_inputs의 시그니처에 실제로 쓰이던 vocab/model_configs
   키워드 인자를 명시했다 (기존엔 문서화가 실제 호출부와 어긋나 있었음).
+- extract_gene_embeddings()를 추가했다 (mode: grn용). embed()가 "세포" 단위 임베딩을
+  뽑는 것과 달리 이건 "유전자" 단위 임베딩을 뽑는다 - 별도 메서드로 분리한 이유는
+  세포 임베딩(embed)과 유전자 임베딩(extract_gene_embeddings)이 반환하는 값의 shape과
+  의미가 완전히 다르고(전자는 (n_cells, embed_dim), 후자는 유전자 이름 -> 벡터 dict),
+  일부 모델은 둘 중 하나만 지원할 수도 있기 때문이다(둘 다 기본 구현은
+  NotImplementedError).
 
 pipeline/(run.py orchestrator, config validation, h5ad validation, report 생성)은
 이 인터페이스에만 의존하고, 모델별 세부사항(scgpt/geneformer 라이브러리 API 등)은
@@ -47,17 +53,17 @@ class ModelAdapter(ABC):
         특정 mode에서만 필요한 키를 선언한다. 기본값은 빈 리스트 - finetune_predict/
         embed처럼 required_config_keys 하나로 충분한 mode는 override할 필요 없다.
 
-        mode: integration처럼 구조적으로 다른 입력(reference/query 쌍이 아니라
-        batch_key가 있는 파일 하나)이 필요한 mode가 있는 adapter만 override한다
+        mode: integration/grn처럼 구조적으로 다른 입력(reference/query 쌍이 아니라
+        data_path 파일 하나)이 필요한 mode가 있는 adapter만 override한다
         (scgpt_adapter.py 참고).
 
         알려진 한계: required_config_keys 자체는 여전히 mode에 상관없이 전부
-        적용되므로, 예를 들어 mode: integration을 실행할 때도 finetune_predict용
+        적용되므로, 예를 들어 mode: integration/grn을 실행할 때도 finetune_predict용
         키(reference_path, n_bins 등)가 계속 필수로 요구된다. 이 프로젝트는
         config.yaml 하나를 여러 mode에서 공유해서 쓰는 사용 패턴이라 실제로는
-        문제되지 않지만(필드가 이미 다 채워져 있음), config.yaml을 mode:
-        integration 하나만 위해 새로 만드는 경우라면 불필요한 필드까지 채워야
-        한다 - 더 근본적인 수정(진짜 mode별 필수 키 분리)은 후속 작업으로 남겨둠.
+        문제되지 않지만(필드가 이미 다 채워져 있음), config.yaml을 특정 mode
+        하나만 위해 새로 만드는 경우라면 불필요한 필드까지 채워야 한다 - 더
+        근본적인 수정(진짜 mode별 필수 키 분리)은 후속 작업으로 남겨둠.
         """
         return []
 
@@ -188,4 +194,27 @@ class ModelAdapter(ABC):
         """
         raise NotImplementedError(
             f"{self.name} adapter는 아직 embed 모드를 지원하지 않습니다."
+        )
+
+    def extract_gene_embeddings(self, cfg: Dict[str, Any], genes: List[str], device) -> Dict[str, Any]:
+        """
+        mode: grn 전용. embed()와 달리 "세포"가 아니라 "유전자" 자체의 임베딩 벡터를
+        뽑는다 - scGPT Tutorial_GRN.ipynb 방식(model.encoder()가 gene token embedding
+        layer라, transformer forward pass 전체 없이 gene_id -> 벡터를 바로 얻을 수
+        있음, GitHub 원본에서 직접 확인함).
+
+        genes: 임베딩을 뽑고 싶은 유전자 이름 리스트 (보통 h5ad의 var 유전자 전체).
+        반환값: {유전자 이름: (embed_dim,) 벡터} dict - 모델 vocabulary에 없는 유전자는
+        조용히 제외된다 (호출부가 len(반환값) vs len(genes)로 몇 개가 빠졌는지 확인).
+
+        이 반환 계약(Dict[str, np.ndarray])은 모델과 무관하다 - pipeline/grn.py는 이
+        dict만 받아서 클러스터링/네트워크/enrichment를 전부 처리하므로, 나중에 다른
+        adapter(Geneformer 등)가 이 메서드를 구현하면 pipeline/grn.py를 그대로
+        재사용할 수 있다.
+
+        기본 구현은 명확한 에러를 낸다 - embed()와 마찬가지로 모든 모델이 gene-level
+        임베딩 추출을 지원하는 건 아니므로, 지원하는 adapter만 override한다.
+        """
+        raise NotImplementedError(
+            f"{self.name} adapter는 아직 gene embedding 추출(mode: grn)을 지원하지 않습니다."
         )
