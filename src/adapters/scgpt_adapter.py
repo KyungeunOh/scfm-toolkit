@@ -441,6 +441,14 @@ class ScGPTAdapter(ModelAdapter):
         load_vocab_full/prepare_inputs/load_model을 따로 거칠 필요가 없다
         (Tutorial_Reference_Mapping.ipynb와 동일한 방식). 입력 adata는 건드리지
         않고, 임베딩만 (n_cells, embed_dim) numpy 배열로 반환한다.
+
+        use_fast_transformer=False로 명시하는 이유: embed_data()의 기본값은
+        flash-attn 기반 fast transformer로 추정되는데(튜토리얼의 CPU-fallback
+        예시가 use_fast_transformer=False를 명시적으로 넘김), 이 프로젝트의
+        Docker 이미지는 flash-attn을 설치하지 않는다(Tier A에서 devel -> runtime
+        베이스 이미지로 바꾸며 의도적으로 뺌). load_model()도 동일하게
+        use_fast_transformer=False로 고정되어 있으므로 annotation 경로와
+        일관성을 맞춘다.
         """
         import scgpt as scg
 
@@ -453,6 +461,8 @@ class ScGPTAdapter(ModelAdapter):
             gene_col=gene_col,
             batch_size=batch_size,
             return_new_adata=True,
+            device=str(device),
+            use_fast_transformer=False,
         )
         return np.asarray(embed_adata.X)
 
