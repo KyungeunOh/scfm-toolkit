@@ -25,6 +25,47 @@ from .base import ModelAdapter
 logger = logging.getLogger(__name__)
 
 
+def enable_activation_checkpointing(model) -> bool:
+    """
+    2026-09 memory-benchmark 브랜치에서 추가. model.transformer_encoder(표준
+    nn.TransformerEncoder - 이 파일의 load_model() 안 Wqkv->in_proj 리매핑
+    정규식(`transformer_encoder\\.layers\\.\\d+\\.self_attn`)이 이미 이 구조를
+    실측 확인해준 바 있음)의 forward를 layer마다 torch.utils.checkpoint로
+    감싸는 버전으로 교체해서, activation 저장 없이 backward 시 재계산하게 만든다
+    (표준 activation checkpointing 트레이드오프: 메모리 절감, 계산량/시간 증가).
+
+    미검증(중요): 아래는 PyTorch 표준 nn.TransformerEncoder.forward의 동작
+    (layer들을 순서대로 호출 후 optional norm)을 그대로 재현한 것이지만, 이
+    프로젝트가 실제로 쓰는 PyTorch 버전에서 nn.TransformerEncoderLayer.forward
+    시그니처가 다르면(예: is_causal 인자 추가 등 PyTorch 버전별 차이) 동작이
+    깨질 수 있다. 서버에서 이 옵션을 처음 켤 때 반드시 확인할 것:
+      1. 에러 없이 학습이 도는지
+      2. benchmark/memory_probe.py의 peak_allocated_mb가 실제로 줄어드는지
+      3. activation_checkpointing=False일 때와 val_acc가 비슷한 범위로 나오는지
+         (재계산 방식이라 완전히 동일한 값을 보장하진 않지만 크게 벗어나면 버그)
+
+    model에 예상한 구조(transformer_encoder.layers)가 없으면 아무것도 하지 않고
+    False를 반환한다 - 호출부가 경고를 남기고 checkpointing 없이 계속 진행하게 한다.
+    """
+    import types
+    import torch.utils.checkpoint as cp
+
+    encoder = getattr(model, "transformer_encoder", None)
+    if encoder is None or not hasattr(encoder, "layers"):
+        return False
+
+    def _checkpointed_forward(self, src, mask=None, src_key_padding_mask=None, **kwargs):
+        output = src
+        for layer in self.layers:
+            output = cp.checkpoint(layer, output, mask, src_key_padding_mask, use_reentrant=False)
+        if getattr(self, "norm", None) is not None:
+            output = self.norm(output)
+        return output
+
+    encoder.forward = types.MethodType(_checkpointed_forward, encoder)
+    return True
+
+
 class SeqDataset(Dataset):
     def __init__(self, data: Dict[str, torch.Tensor]):
         self.data = data
@@ -371,19 +412,49 @@ class ScGPTAdapter(ModelAdapter):
 
         epochs = cfg["epochs"]
         lr = cfg.get("lr", 1e-4)
-        amp = cfg.get("amp", True)
         accum_steps = cfg.get("grad_accum_steps", 1)
+
+        # --- precision (2026-09 memory-benchmark 확장) ---------------------------
+        # cfg에 precision 키가 없으면 기존 4개 GPU-validated mode와 100% 동일하게
+        # amp 키 하나로만 동작한다(기본값 True, autocast 기본 dtype=fp16) - 이
+        # 브랜치가 main의 검증된 동작을 바꾸지 않는다는 원칙을 지키기 위함.
+        # benchmark/run_scgpt_sweep.py만 precision을 명시적으로 넘겨서 fp32/bf16을 쓴다.
+        precision = cfg.get("precision")
+        if precision is None:
+            amp = cfg.get("amp", True)
+            autocast_dtype = torch.float16
+        elif precision == "fp32":
+            amp, autocast_dtype = False, torch.float32
+        elif precision == "fp16":
+            amp, autocast_dtype = True, torch.float16
+        elif precision == "bf16":
+            amp, autocast_dtype = True, torch.bfloat16
+        else:
+            raise ValueError(f"precision='{precision}'은 지원하지 않습니다 (fp32/fp16/bf16 중 하나).")
+        # bf16은 fp32와 비슷한 exponent range라 loss scaling이 불필요/비권장(표준 관행) -
+        # GradScaler는 fp16일 때만 활성화한다.
+        scaler = torch.cuda.amp.GradScaler(enabled=(amp and autocast_dtype == torch.float16))
+
+        # --- activation checkpointing (2026-09 memory-benchmark 확장) ------------
+        # 기본값 False - 명시적으로 켜지 않는 한 기존 동작과 동일.
+        if cfg.get("activation_checkpointing", False):
+            if not enable_activation_checkpointing(model):
+                logger.warning(
+                    "activation_checkpointing=True였지만 model.transformer_encoder 구조를 "
+                    "찾지 못해 적용하지 못했습니다 - checkpointing 없이 계속 진행합니다."
+                )
+
         criterion = nn.CrossEntropyLoss()
         optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
         scheduler = StepLR(optimizer, step_size=1, gamma=cfg.get("schedule_ratio", 0.9))
-        scaler = torch.cuda.amp.GradScaler(enabled=amp)
 
         best_val_acc = -1.0
         best_epoch = None
         best_state = None
 
         logger.info(f"Fine-tuning 시작 (grad_accum_steps={accum_steps}, "
-                    f"유효 배치 크기={train_loader.batch_size * accum_steps})")
+                    f"유효 배치 크기={train_loader.batch_size * accum_steps}, "
+                    f"precision={precision or ('amp' if amp else 'fp32')})")
         for epoch in range(1, epochs + 1):
             model.train()
             total_loss = correct = total = 0
@@ -395,7 +466,7 @@ class ScGPTAdapter(ModelAdapter):
                 ct_labels = batch["celltype_labels"].to(device)
                 padding_mask = gene_ids_b.eq(vocab["<pad>"])
 
-                with torch.cuda.amp.autocast(enabled=amp):
+                with torch.cuda.amp.autocast(enabled=amp, dtype=autocast_dtype):
                     out = model(gene_ids_b, values_b, src_key_padding_mask=padding_mask,
                                 batch_labels=None, CLS=True, CCE=False, MVC=False, ECS=False)
                     loss = criterion(out["cls_output"], ct_labels) / accum_steps
@@ -424,7 +495,7 @@ class ScGPTAdapter(ModelAdapter):
                     values_b = batch["values"].to(device)
                     ct_labels = batch["celltype_labels"].to(device)
                     padding_mask = gene_ids_b.eq(vocab["<pad>"])
-                    with torch.cuda.amp.autocast(enabled=amp):
+                    with torch.cuda.amp.autocast(enabled=amp, dtype=autocast_dtype):
                         out = model(gene_ids_b, values_b, src_key_padding_mask=padding_mask,
                                     batch_labels=None, CLS=True)
                     val_correct += (out["cls_output"].argmax(1) == ct_labels).sum().item()

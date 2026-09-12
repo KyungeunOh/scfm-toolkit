@@ -1,0 +1,20 @@
+# =========================================================================
+# scFoundation adapter 전용 (2026-09 memory-benchmark 브랜치에서 추가)
+#
+# requirements.txt에 합치지 않고 분리한 이유: requirements-geneformer.txt와
+# 동일한 이유(README.md/requirements.txt 상단 주석 참고) - Dockerfile이
+# requirements.txt 전체를 한 번에 pip install하는 구조라, 여기 있는 패키지가
+# scGPT 스택과 충돌하면 이미지 빌드 자체가 깨진다(Geneformer 때 실제로 겪은
+# huggingface_hub 버전 충돌, Phase 12). 아직 이 파일의 버전 조합을 실제로
+# 설치해본 적이 없으므로(미검증), Docker 이미지에 반영하기 전에 별도로 pip
+# install 시도 -> 충돌 여부 확인부터 할 것.
+#
+# einops: requirements.txt에 이미 0.8.2로 있음(scGPT 스택도 씀) - 버전 충돌
+#   가능성 낮음. 여기 다시 적지 않음.
+# local_attention: scFoundation의 pretrainmodels/performer.py 등에서 사용
+#   (model/README.md "Required Package" 절 - einops/numpy/pandas/scipy/pytorch/
+#   scanpy/local_attention). 정확한 pin 버전은 scFoundation repo에 명시돼 있지
+#   않아 미확인 - 서버에서 pip install local_attention으로 최신 버전을 우선
+#   시도하고, 문제가 생기면 그때 버전을 고정할 것.
+# =========================================================================
+local_attention
