@@ -1,6 +1,6 @@
 """
 tests/test_benchmark.py
-benchmark/grid.py, benchmark/logging.py 중 torch/scGPT 없이도 검증 가능한 부분만
+benchmark/grid.py, benchmark/run_log.py 중 torch/scGPT 없이도 검증 가능한 부분만
 확인한다(tests/test_pipeline.py와 같은 스타일 - pytest 대신 순수 스크립트).
 GPU/모델 관련 부분(memory_probe.py, run_*_sweep.py, scfoundation_adapter.py)은
 여기서 검증할 수 없다 - benchmark/README.md "검증 상태" 절 참고.
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from benchmark.grid import coarse_grid, default_smoke_grid, effective_batch_size, refine_between
-from benchmark.logging import RUN_LOG_COLUMNS, append_row, build_row, log_run
+from benchmark.run_log import RUN_LOG_COLUMNS, append_row, build_row, log_run
 
 
 def section(title):

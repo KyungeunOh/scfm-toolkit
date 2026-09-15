@@ -45,7 +45,7 @@ from adapters.scfoundation_adapter import ScFoundationAdapter  # noqa: E402
 from pipeline.config import load_config  # noqa: E402
 
 from benchmark import grid as grid_mod  # noqa: E402
-from benchmark import logging as blog  # noqa: E402
+from benchmark import run_log as blog  # noqa: E402
 from benchmark.memory_probe import measure, set_memory_budget_gb  # noqa: E402
 
 _OVERRIDE_KEY_MAP = {"micro_batch_size": "batch_size", "max_seq_len": "n_hvg_genes"}

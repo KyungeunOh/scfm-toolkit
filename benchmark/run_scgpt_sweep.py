@@ -2,7 +2,7 @@
 benchmark/run_scgpt_sweep.py
 scGPT에 대해 precision / micro_batch_size / grad_accum_steps /
 activation_checkpointing / max_seq_len(gene 수) 조합을 돌며 GPU 메모리·시간·
-macro-F1을 측정해서 benchmark/logging.py로 CSV 한 곳에 기록하는 sweep 러너.
+macro-F1을 측정해서 benchmark/run_log.py로 CSV 한 곳에 기록하는 sweep 러너.
 
 기존 src/run.py의 오케스트레이션(Step 3~9)을 재사용한다. 다만 load_data/
 load_vocab_full/preprocess(Step 3~5)는 sweep 축(precision 등)과 전혀 무관하므로
@@ -57,7 +57,7 @@ from adapters import get_adapter  # noqa: E402
 from pipeline.config import load_config  # noqa: E402
 
 from benchmark import grid as grid_mod  # noqa: E402
-from benchmark import logging as blog  # noqa: E402
+from benchmark import run_log as blog  # noqa: E402
 from benchmark.memory_probe import measure, set_memory_budget_gb  # noqa: E402
 
 # benchmark/grid.py의 축 이름("micro_batch_size")과 scgpt_adapter.py가 실제로 읽는

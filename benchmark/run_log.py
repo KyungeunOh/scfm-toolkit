@@ -1,5 +1,5 @@
 """
-benchmark/logging.py
+benchmark/run_log.py
 교수님이 요청하신 "모든 실험 결과를 하나의 CSV/DB로 합칠 수 있어야 한다"는
 요구사항을 위한 로깅 스키마 + append 함수.
 
@@ -129,7 +129,7 @@ def build_row(**kwargs) -> Dict[str, Any]:
     if unknown:
         raise ValueError(
             f"RUN_LOG_COLUMNS에 없는 필드: {sorted(unknown)}. "
-            f"새 축이면 benchmark/logging.py의 RUN_LOG_COLUMNS에 먼저 추가하세요."
+            f"새 축이면 benchmark/run_log.py의 RUN_LOG_COLUMNS에 먼저 추가하세요."
         )
     row = {col: kwargs.get(col, "") for col in RUN_LOG_COLUMNS}
     return row

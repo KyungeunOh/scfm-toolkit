@@ -92,7 +92,7 @@ def set_memory_budget_gb(budget_gb: Optional[float], device=None) -> bool:
     반환값 True/False는 실제로 제한을 걸었는지 여부(budget_gb가 None이면 아무것도
     안 하고 False 반환 - "예산 제한 없음"과 "제한을 걸려 했지만 실패"를 구분하기 위함).
 
-    주의(교수님이 명시적으로 지적한 부분): 이렇게 흉내낸 조건은 benchmark/logging.py의
+    주의(교수님이 명시적으로 지적한 부분): 이렇게 흉내낸 조건은 benchmark/run_log.py의
     memory_budget_gb + memory_budget_is_simulated=True로 반드시 같이 기록해서,
     CSV만 보고 "12GB 짜리 실제 GPU에서 테스트했다"고 오인하지 않게 한다. 실제 GPU
     이름(gpu_name)과 실제 총 메모리(gpu_total_memory_gb)는 항상 별도 컬럼에 그대로 남는다.
