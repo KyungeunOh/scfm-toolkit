@@ -10,6 +10,7 @@ scGPT 관련 세부사항(토큰화 방식, binning, TransformerModel 파라미�
 
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -458,6 +459,11 @@ class ScGPTAdapter(ModelAdapter):
         for epoch in range(1, epochs + 1):
             model.train()
             total_loss = correct = total = 0
+            nan_steps = 0  # 2026-09 memory-benchmark: micro_batch_size=1 smoke test에서
+            # accuracy가 랜덤보다 낮게(2.3%) 나온 이상치를 조사하기 위한 진단용 카운터.
+            # loss가 nan/inf가 되면 GradScaler가 그 스텝의 optimizer.step()을 조용히
+            # 건너뛰므로(공식 동작), 지금까지는 이게 몇 번이나 발생했는지 전혀 보이지
+            # 않았다 - 기존 학습 동작 자체는 바꾸지 않고 세는 것만 추가.
             optimizer.zero_grad()
 
             for step, batch in enumerate(train_loader):
@@ -471,6 +477,10 @@ class ScGPTAdapter(ModelAdapter):
                                 batch_labels=None, CLS=True, CCE=False, MVC=False, ECS=False)
                     loss = criterion(out["cls_output"], ct_labels) / accum_steps
 
+                loss_value = loss.item() * accum_steps
+                if not math.isfinite(loss_value):
+                    nan_steps += 1
+
                 scaler.scale(loss).backward()
 
                 is_last_batch = (step + 1 == len(train_loader))
@@ -481,9 +491,16 @@ class ScGPTAdapter(ModelAdapter):
                     scaler.update()
                     optimizer.zero_grad()
 
-                total_loss += loss.item() * accum_steps
+                total_loss += loss_value
                 correct += (out["cls_output"].argmax(1) == ct_labels).sum().item()
                 total += len(ct_labels)
+
+            if nan_steps > 0:
+                logger.warning(
+                    f"  Epoch {epoch:2d}/{epochs}: loss가 nan/inf였던 스텝 {nan_steps}/{len(train_loader)}개 "
+                    f"(GradScaler가 해당 스텝의 파라미터 업데이트를 건너뜀 - micro_batch_size가 "
+                    f"작을수록/precision이 fp16일수록 발생 가능성 높음)"
+                )
 
             scheduler.step()
 

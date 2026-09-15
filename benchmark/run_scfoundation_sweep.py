@@ -28,6 +28,9 @@ scfoundation_ckpt_path, scfoundation_gene_list_path)가 필요해서 이 시그�
 
 import argparse
 import copy
+import json
+import logging
+import subprocess
 import sys
 import time
 import traceback
@@ -145,30 +148,46 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
     )
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True, help="scFoundation용 config.yaml 경로 "
-                                                          "(scfoundation_repo_dir/ckpt_path/gene_list_path 포함)")
-    parser.add_argument("--grid", choices=["smoke", "coarse"], default="smoke")
-    parser.add_argument("--out", required=True)
-    parser.add_argument("--memory-budget-gb", type=float, default=None)
-    args = parser.parse_args()
+def _setup_logging():
+    """run_scgpt_sweep.py의 _setup_logging()과 동일한 이유 - src/run.py가 하는
+    logging.basicConfig()/setLevel() 없이는 scfoundation_adapter.py의 logger.info()
+    (Fine-tuning 시작/Epoch 진행 로그 포함)가 전부 조용히 버려진다."""
+    logging.basicConfig(level=logging.WARNING, format="%(message)s",
+                         handlers=[logging.StreamHandler(sys.stdout)])
+    logging.getLogger("adapters.scfoundation_adapter").setLevel(logging.INFO)
 
+
+def _build_ctx(cfg_base: dict, adapter, quiet: bool = False) -> dict:
+    if not quiet:
+        print("Step: load_data (sweep 축과 무관, 1회만 실행)")
+    adata_raw, adata_test_raw, id2type, num_types = adapter.load_data(cfg_base)
+    if not quiet:
+        print(f"  준비 완료: {adata_raw.n_obs}개 세포, cell type {num_types}종")
+    return {"adata_raw": adata_raw, "id2type": id2type, "num_types": num_types, "cfg_base": cfg_base}
+
+
+def _run_single_combo(args) -> None:
+    """run_scgpt_sweep.py의 _run_single_combo()와 동일한 목적 - 조합마다 별도
+    프로세스로 격리해서 peak_reserved_mb가 이전 조합의 GPU 캐시에 오염되지 않게
+    한다(2026-09-16 scGPT smoke test에서 실측으로 확인된 문제, run_scgpt_sweep.py
+    모듈 docstring 참고). scFoundation은 아직 GPU 검증 전이라 이 경로 자체가
+    미검증이지만, 구조는 미리 맞춰둔다."""
+    override = json.loads(args.override_json)
     cfg_base = load_config(args.config)
     adapter = ScFoundationAdapter()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ctx = _build_ctx(cfg_base, adapter, quiet=True)
+    run_one(adapter, ctx, override, device, Path(args.out), memory_budget_gb=args.memory_budget_gb)
 
-    print("Step: load_data (sweep 축과 무관, 1회만 실행)")
-    adata_raw, adata_test_raw, id2type, num_types = adapter.load_data(cfg_base)
-    print(f"  준비 완료: {adata_raw.n_obs}개 세포, cell type {num_types}종")
 
-    ctx = {"adata_raw": adata_raw, "id2type": id2type, "num_types": num_types, "cfg_base": cfg_base}
+def _run_all_in_one_process(args, combos, out_path: Path) -> None:
+    cfg_base = load_config(args.config)
+    adapter = ScFoundationAdapter()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ctx = _build_ctx(cfg_base, adapter, quiet=False)
 
-    combos = grid_mod.default_smoke_grid() if args.grid == "smoke" else grid_mod.coarse_grid()
-    out_path = Path(args.out)
-    print(f"\n{len(combos)}개 조합 실행 (grid={args.grid}) -> {out_path}")
+    print(f"\n{len(combos)}개 조합 실행 (grid={args.grid}, --no-isolate: 프로세스 격리 없음) -> {out_path}")
     print("주의: 이 adapter는 아직 GPU 검증 전입니다 - 첫 조합 결과를 반드시 직접 확인하세요.")
-
     for i, override in enumerate(combos, 1):
         print(f"\n[{i}/{len(combos)}] {override}")
         t0 = time.time()
@@ -176,6 +195,59 @@ def main():
         print(f"  기록 완료 ({time.time() - t0:.1f}초 소요) -> {out_path}")
 
     print(f"\n전체 sweep 완료. 결과: {out_path}")
+
+
+def _run_isolated(args, combos, out_path: Path) -> None:
+    this_script = str(Path(__file__).resolve())
+    print(f"\n{len(combos)}개 조합 실행 (grid={args.grid}, 조합별 프로세스 격리) -> {out_path}")
+    print("주의: 이 adapter는 아직 GPU 검증 전입니다 - 첫 조합 결과를 반드시 직접 확인하세요.")
+
+    for i, override in enumerate(combos, 1):
+        print(f"\n[{i}/{len(combos)}] {override}")
+        t0 = time.time()
+        cmd = [
+            sys.executable, this_script,
+            "--config", args.config,
+            "--out", str(out_path),
+            "--override-json", json.dumps(override),
+        ]
+        if args.memory_budget_gb is not None:
+            cmd += ["--memory-budget-gb", str(args.memory_budget_gb)]
+        result = subprocess.run(cmd)
+        if result.returncode == 0:
+            print(f"  완료 ({time.time() - t0:.1f}초 소요) -> {out_path}")
+        else:
+            print(f"  !! 비정상 종료(returncode={result.returncode}, {time.time() - t0:.1f}초 소요) - "
+                  f"이 조합은 CSV에 안 남았을 수 있음. 위 stderr를 확인할 것.")
+
+    print(f"\n전체 sweep 완료. 결과: {out_path}")
+
+
+def main():
+    _setup_logging()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True, help="scFoundation용 config.yaml 경로 "
+                                                          "(scfoundation_repo_dir/ckpt_path/gene_list_path 포함)")
+    parser.add_argument("--grid", choices=["smoke", "coarse"], default="smoke")
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--memory-budget-gb", type=float, default=None)
+    parser.add_argument("--no-isolate", action="store_true",
+                         help="조합별 프로세스 격리를 끄고 예전처럼 한 프로세스 안에서 전부 실행")
+    parser.add_argument("--override-json", default=None, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    if args.override_json is not None:
+        _run_single_combo(args)
+        return
+
+    combos = grid_mod.default_smoke_grid() if args.grid == "smoke" else grid_mod.coarse_grid()
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.no_isolate:
+        _run_all_in_one_process(args, combos, out_path)
+    else:
+        _run_isolated(args, combos, out_path)
 
 
 if __name__ == "__main__":

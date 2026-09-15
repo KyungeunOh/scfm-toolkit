@@ -22,36 +22,55 @@ lora_rank가 없다.
 
 ```
 benchmark/
-  logging.py               CSV 로깅 스키마(RUN_LOG_COLUMNS) + append 함수
+  run_log.py                CSV 로깅 스키마(RUN_LOG_COLUMNS) + append 함수
+                             (구 이름 logging.py -> 표준 logging 모듈과 이름 충돌해서 rename)
   memory_probe.py           GPU peak memory 측정 + OOM을 "실패"가 아니라 데이터
                              포인트로 다루는 컨텍스트 매니저, memory budget 흉내
   grid.py                   성긴 그리드(coarse) -> OOM 경계 근처 정밀 그리드(refine)
-  run_scgpt_sweep.py         scGPT sweep 러너 (src/run.py의 Step 3~9 재사용)
+  run_scgpt_sweep.py         scGPT sweep 러너 (src/run.py의 Step 3~9 재사용).
+                             기본적으로 조합마다 별도 프로세스로 격리해서 실행
+                             (아래 "조합별 프로세스 격리" 참고)
   run_scfoundation_sweep.py  scFoundation sweep 러너 (run.py 미사용 - 이유는
-                             src/adapters/scfoundation_adapter.py 참고)
+                             src/adapters/scfoundation_adapter.py 참고). 프로세스
+                             격리 구조는 scGPT와 동일하게 맞춰둠(아직 GPU 미검증)
+  summarize_results.py      CSV를 표로 요약 + status별 개수 + checkpointing on/off
+                             peak_allocated_mb 비교 (pandas 필요 - 컨테이너 안에서
+                             --entrypoint python으로 실행할 것, 호스트에 pandas 없음)
+  labmeeting_report_*.md    랩미팅 발표용 정리 (배경/시도/결과/다음 단계)
 
 src/adapters/scfoundation_adapter.py   새 모델 adapter (아래 "검증 상태" 참고)
 src/adapters/scgpt_adapter.py          기존 파일에 precision/activation_checkpointing
-                                        옵션 추가 (기본값은 기존 동작과 100% 동일 -
-                                        cfg에 새 키를 안 넣으면 기존 4개 GPU-validated
-                                        mode 동작이 바뀌지 않음)
+                                        옵션 + nan/inf loss 진단 카운터 추가 (기본값은
+                                        기존 동작과 100% 동일 - cfg에 새 키를 안 넣으면
+                                        기존 4개 GPU-validated mode 동작이 바뀌지 않음)
 ```
 
-## 검증 상태 (2026-09-12 기준, 아직 GPU에서 한 번도 안 돌려봄)
+## 검증 상태 (2026-09-16 기준)
 
-이 브랜치 코드 전체는 **아직 실제 GPU/데이터로 실행 검증되지 않았다**. 이 개발
-환경에 torch/scGPT/scFoundation 라이브러리와 GPU가 없어서, 지금까지는 (1) 코드가
-논리적으로 맞는지 정적으로 검토, (2) `tests/test_benchmark.py`로 GPU/모델
-라이브러리 없이도 되는 부분(grid 조합 생성, CSV 로깅 스키마)만 실행 검증했다.
-서버에서 처음 실행할 때 확인해야 할 것들을 우선순위 순으로 정리:
+**scGPT는 GPU에서 첫 smoke test(5개 조합)를 완료했다** — 결과와 해석은
+`labmeeting_report_2026-09-16.md`, 원본 CSV는 서버의
+`benchmark_results/scgpt_sweep_smoke.csv` 참고. 핵심: batch=32는 activation
+checkpointing 없이 OOM(22.65GB, RTX 3090 24GB), checkpointing 켜면 6.17GB로
+성공 — "batch/checkpointing 조정만으로 OOM 경계가 달라지는가"에 대한 1차 증거 확보.
 
-1. **scGPT `run_scgpt_sweep.py --grid smoke`** (5개 조합, 가장 먼저 시도할 것) -
-   기존에 GPU 검증된 `mode: finetune_predict`과 같은 adapter 메서드를 재사용하므로
-   위험도가 가장 낮다. 확인할 것: activation_checkpointing=True일 때
-   `enable_activation_checkpointing()`이 실제로 `model.transformer_encoder`를
-   찾는지(찾으면 로그에 아무 경고 없음, 못 찾으면 warning 출력됨), bf16이 이
-   프로젝트 GPU(gnode01 등)에서 지원되는지(구형 GPU는 bf16 미지원 - RuntimeError로
-   바로 드러남).
+**아직 원인 미확인인 이상치 2건** (다음 실행에서 확인할 것):
+1. batch=1 조합의 accuracy(2.3%)가 18종 랜덤 기대값(≈5.5%)보다 낮음. batch=1
+   특유의 학습 불안정 또는 fp16 loss가 nan/inf로 발산했을 가능성 — 이번에
+   `scgpt_adapter.py`의 `finetune()`에 nan/inf loss 스텝 카운터를 추가했으니
+   (`Epoch N/M: loss가 nan/inf였던 스텝 X/Y개` 경고 로그), 다음 실행에서 이 로그가
+   찍히는지로 원인을 좁힐 수 있다.
+2. checkpointing=True 조합들의 `peak_reserved_mb`(21.8GB)가 바로 직전 OOM
+   조합의 reserved(23.5GB)와 비슷하게 높게 나옴 — allocated(6.2GB)와 큰 격차.
+   5개 조합을 한 프로세스 안에서 연달아 돌린 탓에 GPU 메모리 캐시가 조합 간
+   완전히 반납되지 않았을 가능성 → **조합별 프로세스 격리를 기본 동작으로
+   변경**해서 해결 시도(아래 참고). 다음 실행에서 `peak_reserved_mb`가
+   `peak_allocated_mb`에 더 가깝게 나오는지 확인할 것.
+
+scFoundation adapter는 **아직 GPU에서 한 번도 실행 검증되지 않았다**(체크포인트/
+repo 준비 전). 서버에서 처음 실행할 때 확인 순서:
+
+1. scGPT는 검증 완료 — 이제 `--grid coarse`(축소판) 또는 `refine_between()`으로
+   경계 정밀화 단계로 넘어갈 것.
 2. **scFoundation adapter** - 위험도가 가장 높다(`src/adapters/scfoundation_adapter.py`
    모듈 docstring의 "검증 상태" 절 참고). 체크포인트/repo부터 준비:
    - `git clone https://github.com/biomap-research/scFoundation.git`
@@ -60,16 +79,32 @@ src/adapters/scgpt_adapter.py          기존 파일에 precision/activation_che
      스택과 충돌하는지 먼저 별도로 확인, 괜찮으면 requirements.txt에 합칠지 결정
    - `config/config_scfoundation.example.yaml`을 복사해서 경로 채운 뒤
      `run_scfoundation_sweep.py --grid smoke`의 **첫 조합 하나만** 먼저 시도
-3. 전체 `--grid coarse`(scGPT 144개 기본 조합)는 1, 2가 끝난 뒤에.
+
+## 조합별 프로세스 격리 (2026-09-16 추가)
+
+`run_scgpt_sweep.py`/`run_scfoundation_sweep.py`는 이제 **기본적으로** 조합마다
+자기 자신을 `--override-json`으로 재호출해서 완전히 새 프로세스/CUDA 컨텍스트에서
+실행한다 — 위 이상치 2번(peak_reserved 오염 의심) 때문에 추가함. 대가는 Step
+3~5(데이터 로드/vocab/전처리)를 조합마다 다시 실행하는 것(이 데이터셋 기준
+수십 초 수준, 감수할 만함).
+
+예전처럼 한 프로세스 안에서 grid 전체를 도는 방식은 `--no-isolate`로 여전히
+쓸 수 있다(디버깅/빠른 반복 확인용 — 이 경우 `peak_reserved_mb` 비교는 다시
+신뢰할 수 없어짐, `peak_allocated_mb`는 두 방식 다 신뢰 가능).
 
 ## 실행 예시
 
 ```bash
-# scGPT
+# scGPT (기본: 조합별 프로세스 격리)
 python benchmark/run_scgpt_sweep.py \
     --config config/config.yaml \
     --grid smoke \
     --out benchmark_results/scgpt_sweep.csv
+
+# 격리 끄고 예전처럼 한 프로세스 안에서 (디버깅용)
+python benchmark/run_scgpt_sweep.py \
+    --config config/config.yaml --grid smoke \
+    --out benchmark_results/scgpt_sweep.csv --no-isolate
 
 # "12GB memory budget" 흉내 (실제 GPU는 이보다 커야 함, 예: A6000 48GB에서)
 python benchmark/run_scgpt_sweep.py \
@@ -91,15 +126,20 @@ memory budget"처럼 흉내낸 조건은 CSV의 `memory_budget_is_simulated=True
 
 ## 남은 작업
 
-- [ ] scGPT: `--grid smoke` 서버 실행 검증 (최우선)
-- [ ] scGPT: activation checkpointing이 실제로 peak memory를 줄이는지 확인
+- [x] scGPT: `--grid smoke` 서버 실행 검증 (2026-09-16 완료)
+- [x] scGPT: activation checkpointing이 실제로 peak memory를 줄이는지 확인
+      (22.65GB → 6.17GB, batch=32 기준)
+- [ ] batch=1 accuracy 이상치(2.3%) 원인 확인 — nan/inf loss 진단 로그 추가함,
+      다음 실행에서 재현되는지 확인
+- [ ] 조합별 프로세스 격리 후 `peak_reserved_mb`가 신뢰 가능한 값으로 나오는지 확인
 - [ ] scFoundation: 체크포인트/repo 준비 + 첫 forward/finetune 성공 확인
 - [ ] scFoundation: activation checkpointing 지원 (지금은 encoder 내부 구조
       미확인으로 미지원 - `select_model()`이 고르는 실제 아키텍처(performer/flash
       등) 확인 후 착수)
 - [ ] LoRA/scPEFT 비교군: scPEFT 공식 코드를 scGPT/scFoundation에 적용 (이 브랜치
       범위 밖, 별도 작업)
-- [ ] scGPT `coarse_grid()` 전체(144개) 실행 + `refine_between()`으로 OOM 경계
-      근처 정밀 측정
+- [ ] scGPT `coarse_grid()` 축소판 실행 + `refine_between()`으로 batch=8~32 OOM
+      경계 근처 정밀 측정 (144개 전체는 smoke 기준 시간 추산상 비현실적 —
+      labmeeting_report 참고)
 - [ ] run.py 완전 통합: scFoundation을 mode: finetune_predict CLI로도 돌릴 수
       있게 base.py의 load_vocab_full 시그니처 확장 (scgpt/geneformer 영향 검토 필요)
