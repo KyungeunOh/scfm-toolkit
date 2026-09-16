@@ -26,7 +26,9 @@ benchmark/
                              (구 이름 logging.py -> 표준 logging 모듈과 이름 충돌해서 rename)
   memory_probe.py           GPU peak memory 측정 + OOM을 "실패"가 아니라 데이터
                              포인트로 다루는 컨텍스트 매니저, memory budget 흉내
-  grid.py                   성긴 그리드(coarse) -> OOM 경계 근처 정밀 그리드(refine)
+  grid.py                   성긴 그리드(coarse) -> OOM 경계 근처 정밀 그리드(refine).
+                             priority_grid()는 144개 coarse 대신 smoke 결과 기반
+                             축소 조합(~17개, 2026-09-16 추가)
   run_scgpt_sweep.py         scGPT sweep 러너 (src/run.py의 Step 3~9 재사용).
                              기본적으로 조합마다 별도 프로세스로 격리해서 실행
                              (아래 "조합별 프로세스 격리" 참고)
@@ -101,6 +103,12 @@ python benchmark/run_scgpt_sweep.py \
     --grid smoke \
     --out benchmark_results/scgpt_sweep.csv
 
+# priority: smoke 결과 기반 축소 조합 (144개 coarse 대신, ~17개)
+python benchmark/run_scgpt_sweep.py \
+    --config config/config.yaml \
+    --grid priority \
+    --out benchmark_results/scgpt_sweep_priority.csv
+
 # 격리 끄고 예전처럼 한 프로세스 안에서 (디버깅용)
 python benchmark/run_scgpt_sweep.py \
     --config config/config.yaml --grid smoke \
@@ -124,6 +132,47 @@ python benchmark/run_scfoundation_sweep.py \
 memory budget"처럼 흉내낸 조건은 CSV의 `memory_budget_is_simulated=True`와
 실제 GPU 이름(`gpu_name`)이 항상 같이 남아서 실제 GPU와 혼동되지 않는다.
 
+## 스키마 마이그레이션 (2026-09-16: `lr` 컬럼 추가)
+
+`run_log.py`의 `append_row()`는 기존 CSV의 헤더가 지금 `RUN_LOG_COLUMNS`와
+한 글자라도 다르면 조용히 넘어가지 않고 **에러를 내고 멈춘다**(컬럼이 밀려서
+잘못된 값이 들어가는 걸 막기 위한 의도적 설계). batch=1 majority-class
+collapse 원인이 lr/batch 불일치로 확인된 뒤, `priority_grid()`에서 배치별로
+lr을 바꿔 테스트하려고 `lr` 컬럼을 스키마에 추가했다 — 즉 **기존에 이미 만든
+`scgpt_sweep_*.csv` 파일에 이 시점부터 이어서 append하려면, 그 CSV에도 먼저
+`lr` 컬럼을 넣어줘야 한다.**
+
+기존 smoke CSV(5개 조합 모두 `config/config.yaml`의 기본값 `lr: 0.0001`로
+실행됨)에 대해 서버에서 한 번만 실행하면 되는 마이그레이션:
+
+```bash
+cd benchmark_results   # scgpt_sweep_smoke.csv가 있는 디렉토리
+python3 - <<'EOF'
+import csv
+from pathlib import Path
+
+path = Path("scgpt_sweep_smoke.csv")
+rows = list(csv.reader(open(path, newline="")))
+header, data = rows[0], rows[1:]
+
+if "lr" in header:
+    print("이미 lr 컬럼이 있음 - 마이그레이션 불필요")
+else:
+    idx = header.index("activation_checkpointing") + 1
+    header.insert(idx, "lr")
+    for row in data:
+        row.insert(idx, "0.0001")  # 이 CSV의 5개 조합은 전부 기본 lr로 실행됨
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(data)
+    print(f"완료: {path} 에 lr 컬럼 추가(전부 0.0001)")
+EOF
+```
+
+CSV를 새로 만드는 경우(`--out`에 아직 없는 파일명, 예: `scgpt_sweep_priority.csv`)는
+해당 없음 — 처음부터 새 스키마로 헤더가 만들어진다.
+
 ## 남은 작업
 
 - [x] scGPT: `--grid smoke` 서버 실행 검증 (2026-09-16 완료)
@@ -138,8 +187,9 @@ memory budget"처럼 흉내낸 조건은 CSV의 `memory_budget_is_simulated=True
       등) 확인 후 착수)
 - [ ] LoRA/scPEFT 비교군: scPEFT 공식 코드를 scGPT/scFoundation에 적용 (이 브랜치
       범위 밖, 별도 작업)
-- [ ] scGPT `coarse_grid()` 축소판 실행 + `refine_between()`으로 batch=8~32 OOM
-      경계 근처 정밀 측정 (144개 전체는 smoke 기준 시간 추산상 비현실적 —
-      labmeeting_report 참고)
+- [ ] scGPT `priority_grid()`(~17개, 2026-09-16 추가) 서버 실행 — batch=1
+      낮은 lr 2종, batch=8~32 OOM 경계 refine(checkpointing 유/무), OOM 경계
+      중간 배치 기준 precision 비교, grad_accum/gene수 효과. `--grid priority`로
+      실행 (`bash benchmark/run_benchmark.sh priority`)
 - [ ] run.py 완전 통합: scFoundation을 mode: finetune_predict CLI로도 돌릴 수
       있게 base.py의 load_vocab_full 시그니처 확장 (scgpt/geneformer 영향 검토 필요)

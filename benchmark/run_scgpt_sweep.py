@@ -102,6 +102,7 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         grad_accum_steps=override.get("grad_accum_steps", cfg.get("grad_accum_steps", 1)),
         effective_batch_size=grid_mod.effective_batch_size(override),
         activation_checkpointing=override.get("activation_checkpointing", cfg.get("activation_checkpointing", False)),
+        lr=override.get("lr", cfg.get("lr", 0.0001)),
         seed=cfg.get("seed", 42),
         **blog.base_environment_fields(),
         **blog.gpu_fields(),
@@ -272,8 +273,12 @@ def main():
     _setup_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="base config.yaml 경로")
-    parser.add_argument("--grid", choices=["smoke", "coarse"], default="smoke",
-                         help="smoke: 5개 조합(처음 실행 권장), coarse: grid.py의 전체 조합(144개 기본값)")
+    parser.add_argument("--grid", choices=["smoke", "coarse", "priority"], default="smoke",
+                         help="smoke: 5개 조합(처음 실행 권장), "
+                              "priority: 2026-09-16 smoke 결과 기반 축소 조합(~17개 - "
+                              "batch=1 낮은 lr, batch 8~32 OOM 경계 refine, precision/"
+                              "grad_accum/gene수 비교), "
+                              "coarse: grid.py의 전체 조합(144개 기본값)")
     parser.add_argument("--out", required=True, help="결과 CSV 저장 경로 (이미 있으면 append)")
     parser.add_argument("--memory-budget-gb", type=float, default=None,
                          help="예: 12 -> 실제 GPU 위에서 '12GB memory budget'을 흉내냄 "
@@ -289,7 +294,12 @@ def main():
         _run_single_combo(args)
         return
 
-    combos = grid_mod.default_smoke_grid() if args.grid == "smoke" else grid_mod.coarse_grid()
+    _GRID_FUNCS = {
+        "smoke": grid_mod.default_smoke_grid,
+        "priority": grid_mod.priority_grid,
+        "coarse": grid_mod.coarse_grid,
+    }
+    combos = _GRID_FUNCS[args.grid]()
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 

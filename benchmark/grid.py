@@ -104,6 +104,89 @@ def refine_between(
     return [dict(base_override, **{axis: v}) for v in candidates]
 
 
+def priority_grid(
+    batch_boundary_lo: int = 8,
+    batch_boundary_hi: int = 32,
+) -> List[Dict[str, Any]]:
+    """
+    144개 coarse_grid() 전체 대신, 2026-09-16 smoke test 결과에서 나온 두 가지
+    구체적인 질문에 답하기 위해 축소한 조합("다음 단계" 4번). smoke 5개 조합
+    기준 실측 소요시간(2시간 반, batch=1이 대부분)을 감안해 이미 있는 조합은
+    반복하지 않는다 - 아래 각 항목에서 "smoke에 이미 있음"이라고 표시한 값은
+    빠져 있다.
+
+    포함하는 것:
+    1. batch=1 + 낮은 lr 2종 (labmeeting_report 3.1절 가설 검증 - lr을 낮추면
+       majority-class collapse 없이 정상 학습되는지). 기존 lr=1e-4 결과는
+       smoke CSV에 이미 있음.
+    2. checkpointing 없이 micro_batch_size=batch_boundary_lo(성공)~
+       batch_boundary_hi(OOM) 사이 OOM 경계를 refine_between()으로 촘촘하게.
+    3. checkpointing 켜고 같은 batch 지점들 - checkpointing이 OOM 경계 자체를
+       얼마나 뒤로 미루는지 2번과 짝지어 비교.
+    4. OOM 경계 중간값(batch_boundary_lo/hi 사이 refine 지점 중 하나) 기준
+       precision별 비교 - fp16은 2/3번에 이미 포함되므로 fp32/bf16만 추가.
+    5. grad_accum_steps 효과 - micro_batch_size=batch_boundary_lo를 고정하고
+       grad_accum=8로 늘렸을 때(유효 배치 8배) peak memory가 실제로 그대로인지.
+    6. max_seq_len(gene 수) 효과 - micro_batch_size=batch_boundary_lo 고정,
+       500/1500에서 memory가 얼마나 줄어드는지(3001은 smoke에 이미 있음).
+
+    override dict에 "lr" 키를 직접 넣으면 apply_overrides()가 cfg["lr"]로
+    그대로 덮어쓴다(run_scgpt_sweep.py의 _OVERRIDE_KEY_MAP에 없는 키는 이름
+    그대로 쓰임) - scgpt_adapter.finetune()이 cfg.get("lr", 1e-4)로 읽으므로
+    코드 수정 없이 바로 동작한다. run_log.py의 lr 컬럼에 실제 쓰인 값이
+    기록되므로, 이 grid로 실행한 뒤 CSV에서 바로 확인 가능하다.
+    """
+    combos: List[Dict[str, Any]] = []
+
+    # 1. batch=1 + 낮은 lr (majority-class collapse 가설 검증)
+    for lr in (3e-5, 1e-5):
+        combos.append({
+            "precision": "fp16", "micro_batch_size": 1, "grad_accum_steps": 1,
+            "activation_checkpointing": False, "max_seq_len": 3001, "lr": lr,
+        })
+
+    # 2~3. OOM 경계 refine, checkpointing 유/무 각각
+    boundary_points = refine_between(
+        "micro_batch_size", batch_boundary_lo, batch_boundary_hi, n_points=5,
+    )
+    mid_batch = None
+    for point in boundary_points:
+        b = point["micro_batch_size"]
+        if mid_batch is None or abs(b - (batch_boundary_lo + batch_boundary_hi) / 2) < \
+                abs(mid_batch - (batch_boundary_lo + batch_boundary_hi) / 2):
+            mid_batch = b
+        combos.append({
+            "precision": "fp16", "micro_batch_size": b, "grad_accum_steps": 1,
+            "activation_checkpointing": False, "max_seq_len": 3001,
+        })
+        combos.append({
+            "precision": "fp16", "micro_batch_size": b, "grad_accum_steps": 1,
+            "activation_checkpointing": True, "max_seq_len": 3001,
+        })
+
+    # 4. OOM 경계 중간 배치 기준 precision 비교 (fp16은 2~3번에 이미 있음)
+    for precision in ("fp32", "bf16"):
+        combos.append({
+            "precision": precision, "micro_batch_size": mid_batch, "grad_accum_steps": 1,
+            "activation_checkpointing": False, "max_seq_len": 3001,
+        })
+
+    # 5. grad_accum_steps 효과 (batch_boundary_lo 고정, 유효 배치만 8배로)
+    combos.append({
+        "precision": "fp16", "micro_batch_size": batch_boundary_lo, "grad_accum_steps": 8,
+        "activation_checkpointing": False, "max_seq_len": 3001,
+    })
+
+    # 6. max_seq_len(gene 수) 효과 (batch_boundary_lo 고정, 3001은 smoke에 이미 있음)
+    for seq_len in (500, 1500):
+        combos.append({
+            "precision": "fp16", "micro_batch_size": batch_boundary_lo, "grad_accum_steps": 1,
+            "activation_checkpointing": False, "max_seq_len": seq_len,
+        })
+
+    return combos
+
+
 def effective_batch_size(override: Dict[str, Any]) -> Optional[int]:
     if "micro_batch_size" in override and "grad_accum_steps" in override:
         return override["micro_batch_size"] * override["grad_accum_steps"]

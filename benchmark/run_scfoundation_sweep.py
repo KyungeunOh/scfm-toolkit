@@ -87,6 +87,7 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         activation_checkpointing=override.get("activation_checkpointing", False),
         notes=("activation_checkpointing=True가 요청됐지만 scfoundation_adapter는 아직 미지원 "
                "(finetune()이 경고 후 무시함)" if override.get("activation_checkpointing") else ""),
+        lr=override.get("lr", cfg.get("lr", 0.0001)),
         seed=cfg.get("seed", 42),
         **blog.base_environment_fields(),
         **blog.gpu_fields(),

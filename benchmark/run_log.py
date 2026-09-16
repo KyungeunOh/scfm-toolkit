@@ -45,6 +45,11 @@ RUN_LOG_COLUMNS = [
     "grad_accum_steps",
     "effective_batch_size",  # micro_batch_size * grad_accum_steps (편의 컬럼)
     "activation_checkpointing",
+    "lr",                     # learning rate (2026-09-16 추가 - batch_size=1에서
+                              # majority-class collapse가 lr/batch 불일치 때문으로
+                              # 확인된 뒤, priority_grid()에서 배치별로 lr을 바꿔가며
+                              # 테스트하기 위해 필요해짐. 기존 CSV에 이 컬럼을 추가하려면
+                              # README.md의 "스키마 마이그레이션" 절 참고)
     # GPU 조건 (실제 GPU와 흉내낸 예산을 절대 혼동하지 않도록 분리)
     "gpu_name",               # torch.cuda.get_device_name() 실측값
     "gpu_total_memory_gb",    # 그 GPU의 실제 전체 메모리
