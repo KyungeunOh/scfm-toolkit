@@ -27,9 +27,10 @@ def main():
 
     cols = [
         "precision", "micro_batch_size", "grad_accum_steps", "activation_checkpointing",
-        "max_seq_len", "status", "peak_allocated_mb", "peak_reserved_mb",
+        "lr", "max_seq_len", "n_genes_input", "status", "peak_allocated_mb", "peak_reserved_mb",
         "total_seconds", "accuracy", "macro_f1",
-    ]
+    ]  # lr/n_genes_input: 2026-09-17 priority_grid 분석 중 배치별 lr, 실제 gene 수(요청한
+       # max_seq_len과 다를 수 있음)를 구분할 수 없었던 문제 때문에 추가
     cols = [c for c in cols if c in df.columns]
     print("=" * 100)
     print(f"{args.csv_path}  ({len(df)}개 실행 결과)")
