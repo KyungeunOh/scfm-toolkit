@@ -187,6 +187,38 @@ def priority_grid(
     return combos
 
 
+def gene_length_grid() -> List[Dict[str, Any]]:
+    """
+    2026-09-17: priority_grid()의 gene 수(max_seq_len) 축 결과, 1500과 3001이
+    peak_allocated_mb를 거의 완전히 동일하게 냈다(9746.87MB vs ~9740MB) - 원인을
+    diagnose_seq_lengths.py로 확인해보니, tokenize_and_pad_batch(max_len=max_seq_len,
+    include_zero_gene=False)가 "세포당 발현 유전자 수만큼만 채우고 모자라면
+    패딩"하는 방식인데, 이 데이터셋(reference 7,844세포)의 세포당 발현 유전자 수가
+    min=52, median=224, p95=658, **max=1337**로 이미 1500보다 작다. 즉
+    max_seq_len >= 1337인 값은 전부 실질적으로 같은 조건("자를 필요 없음")이라
+    500/1500/3001 세 점만으로는 진짜 "gene 수 -> 메모리" 관계를 볼 수 없었다
+    (500만 실제로 잘라내는 값이었고 1500/3001은 둘 다 자연스러운 상한(1337)에서
+    이미 정체됨).
+
+    이 함수는 그 상한(1337) 아래쪽을 촘촘하게 훑어서 실제 스케일링 곡선을 그리기
+    위한 grid: min(52)~max(1337) 사이에 대략 균등 분포된 값들 + 정확히 max(1337)
+    자체(여기서부터 더 늘려도 효과 없어야 정상 - 1500 결과와 거의 같은 값이
+    나오는지 재확인하는 용도). batch_size/precision/checkpointing은
+    priority_grid()의 max_seq_len=500 조합과 맞춰서 고정(직접 비교 가능하게) -
+    500 자체는 이미 priority_grid 결과에 있으므로 여기서 반복하지 않는다.
+    """
+    # min=52, median=224, p95=658, max=1337 (2026-09-17 diagnose_seq_lengths.py 실측)
+    # 사이를 대략 균등하게 나눈 지점들 + 정확히 max(1337) 지점.
+    seq_lens = [150, 300, 700, 900, 1100, 1337]
+    return [
+        {
+            "precision": "fp16", "micro_batch_size": 8, "grad_accum_steps": 1,
+            "activation_checkpointing": False, "max_seq_len": s,
+        }
+        for s in seq_lens
+    ]
+
+
 def effective_batch_size(override: Dict[str, Any]) -> Optional[int]:
     if "micro_batch_size" in override and "grad_accum_steps" in override:
         return override["micro_batch_size"] * override["grad_accum_steps"]

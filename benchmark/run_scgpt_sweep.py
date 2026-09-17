@@ -273,11 +273,14 @@ def main():
     _setup_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="base config.yaml 경로")
-    parser.add_argument("--grid", choices=["smoke", "coarse", "priority"], default="smoke",
+    parser.add_argument("--grid", choices=["smoke", "coarse", "priority", "gene_length"], default="smoke",
                          help="smoke: 5개 조합(처음 실행 권장), "
                               "priority: 2026-09-16 smoke 결과 기반 축소 조합(~17개 - "
                               "batch=1 낮은 lr, batch 8~32 OOM 경계 refine, precision/"
                               "grad_accum/gene수 비교), "
+                              "gene_length: 2026-09-17 diagnose_seq_lengths.py 실측(세포당 "
+                              "발현 gene 수 max=1337)을 바탕으로 그 아래를 촘촘히 훑는 "
+                              "gene 수 전용 grid(6개), "
                               "coarse: grid.py의 전체 조합(144개 기본값)")
     parser.add_argument("--out", required=True, help="결과 CSV 저장 경로 (이미 있으면 append)")
     parser.add_argument("--memory-budget-gb", type=float, default=None,
@@ -297,6 +300,7 @@ def main():
     _GRID_FUNCS = {
         "smoke": grid_mod.default_smoke_grid,
         "priority": grid_mod.priority_grid,
+        "gene_length": grid_mod.gene_length_grid,
         "coarse": grid_mod.coarse_grid,
     }
     combos = _GRID_FUNCS[args.grid]()

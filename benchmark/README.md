@@ -187,9 +187,18 @@ CSV를 새로 만드는 경우(`--out`에 아직 없는 파일명, 예: `scgpt_s
       등) 확인 후 착수)
 - [ ] LoRA/scPEFT 비교군: scPEFT 공식 코드를 scGPT/scFoundation에 적용 (이 브랜치
       범위 밖, 별도 작업)
-- [ ] scGPT `priority_grid()`(~17개, 2026-09-16 추가) 서버 실행 — batch=1
-      낮은 lr 2종, batch=8~32 OOM 경계 refine(checkpointing 유/무), OOM 경계
-      중간 배치 기준 precision 비교, grad_accum/gene수 효과. `--grid priority`로
-      실행 (`bash benchmark/run_benchmark.sh priority`)
+- [x] scGPT `priority_grid()`(~17개, 2026-09-16 추가) 서버 실행 완료 (2026-09-17) —
+      batch=1 낮은 lr(3e-5/1e-5) 둘 다 정상 학습 확인(집단 붕괴 해결),
+      checkpointing 없이 OOM 경계가 16(성공)~20(OOM) 사이로 좁혀짐, checkpointing
+      켜면 28까지 문제없음(거의 선형, batch당 ~0.17GB), grad_accum_steps는
+      메모리에 거의 영향 없음(예상대로) 확인. max_seq_len=1500/3001 결과가
+      동일하게 나온 원인은 diagnose_seq_lengths.py로 확인(아래).
+- [x] `diagnose_seq_lengths.py` 실행 완료 (2026-09-17) — 세포당 발현 gene 수
+      min=52/median=224/p95=658/**max=1337**. max_seq_len>=1337은 전부 "자를
+      필요 없음"이라 500만 실제로 잘리고 1500/3001은 자연 상한(1337)에서 이미
+      정체된 것으로 확인됨(코드 버그 아님, 실험 설계 문제였음).
+- [ ] scGPT `gene_length_grid()`(6개, 2026-09-17 추가) 서버 실행 — 위에서 찾은
+      자연 상한(1337) 아래를 촘촘히 훑어 진짜 "gene 수 -> 메모리" 곡선 확인.
+      `--grid gene_length`로 실행 (`bash benchmark/run_benchmark.sh gene_length`)
 - [ ] run.py 완전 통합: scFoundation을 mode: finetune_predict CLI로도 돌릴 수
       있게 base.py의 load_vocab_full 시그니처 확장 (scgpt/geneformer 영향 검토 필요)
