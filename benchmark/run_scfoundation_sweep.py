@@ -224,12 +224,21 @@ def _run_isolated(args, combos, out_path: Path) -> None:
     print(f"\n전체 sweep 완료. 결과: {out_path}")
 
 
+_GRID_FUNCS = {
+    "smoke": grid_mod.default_smoke_grid,
+    "coarse": grid_mod.coarse_grid,
+    "gene_length": grid_mod.scfoundation_gene_length_grid,
+}
+# 2026-09-22 추가: scGPT의 run_scgpt_sweep.py와 같은 패턴(_GRID_FUNCS 딕셔너리)으로
+# --grid 선택지를 확장 - gene_length_grid로 gene-count 단독 효과를 본다.
+
+
 def main():
     _setup_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="scFoundation용 config.yaml 경로 "
                                                           "(scfoundation_repo_dir/ckpt_path/gene_list_path 포함)")
-    parser.add_argument("--grid", choices=["smoke", "coarse"], default="smoke")
+    parser.add_argument("--grid", choices=list(_GRID_FUNCS.keys()), default="smoke")
     parser.add_argument("--out", required=True)
     parser.add_argument("--memory-budget-gb", type=float, default=None)
     parser.add_argument("--no-isolate", action="store_true",
@@ -241,7 +250,7 @@ def main():
         _run_single_combo(args)
         return
 
-    combos = grid_mod.default_smoke_grid() if args.grid == "smoke" else grid_mod.coarse_grid()
+    combos = _GRID_FUNCS[args.grid]()
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 

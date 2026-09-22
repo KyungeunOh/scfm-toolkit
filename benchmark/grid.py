@@ -223,3 +223,18 @@ def effective_batch_size(override: Dict[str, Any]) -> Optional[int]:
     if "micro_batch_size" in override and "grad_accum_steps" in override:
         return override["micro_batch_size"] * override["grad_accum_steps"]
     return None
+
+
+def scfoundation_gene_length_grid():
+    """scFoundation 전용 gene-count sweep (2026-09-22 추가) - scGPT의 gene_length_grid()와
+    같은 목적이지만 메커니즘은 다르다. scFoundation은 main_gene_selection()으로 항상
+    고정 19264-길이 dense 벡터(0-padding)로 재배열되므로(scfoundation_adapter.py 참고),
+    n_hvg_genes를 줄여도 모델에 들어가는 seq_len 자체는 안 줄어들 수 있다 -
+    gatherData()가 실제로 0이 아닌 유전자만 골라 시퀀스를 줄이는지가 어댑터 docstring의
+    미검증 가정 #4였는데, 이 grid 결과로 scGPT처럼 quadratic인지 거의 평평한지 확인한다.
+    batch_size=8/precision=fp16/activation_checkpointing=False로 고정
+    (checkpointing은 scfoundation_adapter 미지원이라 여기선 의미 없어 뺐다)."""
+    base = dict(precision="fp16", micro_batch_size=8, grad_accum_steps=1,
+                activation_checkpointing=False)
+    points = [100, 300, 700, 1200, 2000, 3000]
+    return [dict(base, max_seq_len=p) for p in points]
