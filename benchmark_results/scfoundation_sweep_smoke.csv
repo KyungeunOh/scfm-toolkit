@@ -1,0 +1,42 @@
+run_id,timestamp_utc,model,mode,checkpoint,dataset,n_cells,n_genes_input,max_seq_len,finetune_method,lora_rank,lora_target_layers,precision,micro_batch_size,grad_accum_steps,effective_batch_size,activation_checkpointing,lr,gpu_name,gpu_total_memory_gb,memory_budget_gb,memory_budget_is_simulated,status,error_message,peak_allocated_mb,peak_reserved_mb,seconds_per_epoch,total_seconds,macro_f1,accuracy,seed,python_version,torch_version,git_commit,notes
+20260921T104656125859,2026-09-21T10:46:56.125883+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,500,500,full_ft,,,fp16,1,1,1,False,0.0001,NVIDIA GeForce RTX 3090,23.59,,,error,"preprocess/prepare_inputs/load_model 실패: No module named 'get_embedding'
+Traceback (most recent call last):
+  File ""/workspace/benchmark/run_scfoundation_sweep.py"", line 107, in run_one
+    adata = adapter.preprocess(ctx[""adata_raw""].copy(), cfg)
+  File ""/workspace/src/adapters/scfoundation_adapter.py"", line 235, in preprocess
+    from get_embedding import main_gene_selection  # scFoundation repo, sys.path에 이미 추가됨
+ModuleNotFoundError: No module named 'get_embedding'
+",,,,,,,42,3.10.11,2.0.1,,
+20260921T113803639965,2026-09-21T11:38:03.639991+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,500,500,full_ft,,,fp16,1,1,1,False,0.0001,NVIDIA GeForce RTX 3090,23.59,,,error,"preprocess/prepare_inputs/load_model 실패: No module named 'get_embedding'
+Traceback (most recent call last):
+  File ""/workspace/benchmark/run_scfoundation_sweep.py"", line 107, in run_one
+    adata = adapter.preprocess(ctx[""adata_raw""].copy(), cfg)
+  File ""/workspace/src/adapters/scfoundation_adapter.py"", line 235, in preprocess
+    from get_embedding import main_gene_selection  # scFoundation repo, sys.path에 이미 추가됨
+ModuleNotFoundError: No module named 'get_embedding'
+",,,,,,,42,3.10.11,2.0.1,,
+20260922T025324199165,2026-09-22T02:53:24.199189+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,500,500,full_ft,,,fp16,1,1,1,False,0.0001,NVIDIA GeForce RTX 3090,23.59,,,error,"preprocess/prepare_inputs/load_model 실패: [Errno 2] No such file or directory: './OS_scRNA_gene_index.19264.tsv'
+wds)
+  File ""/opt/conda/lib/python3.10/site-packages/pandas/io/parsers/readers.py"", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+  File ""/opt/conda/lib/python3.10/site-packages/pandas/io/parsers/readers.py"", line 1880, in _make_engine
+    self.handles = get_handle(
+  File ""/opt/conda/lib/python3.10/site-packages/pandas/io/common.py"", line 873, in get_handle
+    handle = open(
+FileNotFoundError: [Errno 2] No such file or directory: './OS_scRNA_gene_index.19264.tsv'
+",,,,,,,42,3.10.11,2.0.1,,
+20260922T030152096866,2026-09-22T03:01:52.096893+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,500,500,full_ft,,,fp16,1,1,1,False,0.0001,NVIDIA GeForce RTX 3090,23.59,,,error,"preprocess/prepare_inputs/load_model 실패: index -1 is out of bounds for axis 0 with size 0
+   return _ureduce(a,
+  File ""/opt/conda/lib/python3.10/site-packages/numpy/lib/function_base.py"", line 3823, in _ureduce
+    r = func(a, **kwargs)
+  File ""/opt/conda/lib/python3.10/site-packages/numpy/lib/function_base.py"", line 4722, in _quantile_ureduce_func
+    result = _quantile(arr,
+  File ""/opt/conda/lib/python3.10/site-packages/numpy/lib/function_base.py"", line 4831, in _quantile
+    slices_having_nans = np.isnan(arr[-1, ...])
+IndexError: index -1 is out of bounds for axis 0 with size 0
+",,,,,,,42,3.10.11,2.0.1,,
+20260922T034627292306,2026-09-22T03:46:27.292329+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,500,500,full_ft,,,fp16,2,1,2,False,0.0001,NVIDIA GeForce RTX 3090,23.59,,,success,,1273.34,1422.0,106.41,1064.13,0.3592,0.5787,42,3.10.11,2.0.1,,
+20260922T041447983563,2026-09-22T04:14:47.983584+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,3001,3001,full_ft,,,fp16,8,1,8,False,0.0001,NVIDIA GeForce RTX 3090,23.59,,,success,,3552.37,11696.0,55.95,559.48,0.7477,0.8536,42,3.10.11,2.0.1,,
+20260922T042731495004,2026-09-22T04:27:31.495025+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,3001,3001,full_ft,,,fp16,32,1,32,False,0.0001,NVIDIA GeForce RTX 3090,23.59,,,success,,10898.49,22868.0,66.82,668.16,0.7606,0.8537,42,3.10.11,2.0.1,,
+20260922T044157017203,2026-09-22T04:41:57.017231+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,3001,3001,full_ft,,,fp16,32,1,32,True,0.0001,NVIDIA GeForce RTX 3090,23.59,,,success,,10898.21,23304.0,67.51,675.07,0.7092,0.8261,42,3.10.11,2.0.1,,activation_checkpointing=True가 요청됐지만 scfoundation_adapter는 아직 미지원 (finetune()이 경고 후 무시함)
+20260922T045621695262,2026-09-22T04:56:21.695287+00:00,scfoundation,finetune_predict,/workspace/scFoundation/model/models/models.ckpt,/workspace/data/c_data.h5ad,21312,3001,3001,full_ft,,,bf16,32,1,32,True,0.0001,NVIDIA GeForce RTX 3090,23.59,,,success,,10896.44,22694.0,67.82,678.18,0.7559,0.8648,42,3.10.11,2.0.1,,activation_checkpointing=True가 요청됐지만 scfoundation_adapter는 아직 미지원 (finetune()이 경고 후 무시함)

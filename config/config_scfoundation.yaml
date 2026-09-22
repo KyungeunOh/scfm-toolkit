@@ -1,0 +1,52 @@
+# =========================================================================
+# scFoundation sweep 전용 config 예시 (2026-09 memory-benchmark 브랜치)
+#
+# 주의: 이 config는 run.sh/run.py용이 아니다. scFoundation은 아직 run.py CLI
+# 경로(mode: finetune_predict)와 호환되지 않는다(src/adapters/scfoundation_adapter.py의
+# load_vocab_full() docstring 참고). 이 파일은
+#   python benchmark/run_scfoundation_sweep.py --config config/config_scfoundation.yaml ...
+# 전용이다. 실제로 쓰려면 이 파일을 config_scfoundation.yaml로 복사해서 아래
+# 경로들을 서버의 실제 경로로 채울 것.
+# =========================================================================
+
+model: scfoundation
+output_dir: /workspace/benchmark_results
+
+# --- scFoundation 전용 경로 (모두 미리 준비 필요) ---
+# 1) scfoundation_repo_dir: `git clone https://github.com/biomap-research/scFoundation.git`한 경로
+#    (model/load.py, model/get_embedding.py 등을 import하기 위해 필요)
+scfoundation_repo_dir: /workspace/scFoundation
+# 2) scfoundation_ckpt_path: 체크포인트 파일 - PyPI/GitHub가 아니라 SharePoint에서
+#    별도로 받아야 함(scFoundation repo의 model/README.md "Inference" 절의 다운로드
+#    링크 참고). 받은 뒤 이 경로에 위치시킬 것.
+scfoundation_ckpt_path: /workspace/scFoundation/model/models/models.ckpt
+# 3) scfoundation_gene_list_path: scFoundation repo에 포함된 19264-유전자 목록
+scfoundation_gene_list_path: /workspace/scFoundation/model/OS_scRNA_gene_index.19264.tsv
+
+# --- 데이터 (기존 scGPT config.yaml과 동일한 c_data.h5ad/filtered_ms_adata.h5ad 재사용 가능) ---
+reference_path: /workspace/data/c_data.h5ad
+query_path: /workspace/data/filtered_ms_adata.h5ad
+celltype_col: celltype
+source_celltype_col: "Factor Value[inferred cell type - authors labels]"
+gene_col: gene_name
+data_is_raw: false
+
+# --- fine-tuning 파라미터 (scgpt와 이름을 맞춤) ---
+batch_size: 8
+eval_batch_size: 16
+epochs: 10
+lr: 0.0001
+grad_accum_steps: 1
+train_ratio: 0.9
+seed: 42
+
+# --- scFoundation 고유 ---
+scfoundation_unfrozen_layers: 2   # official README "GPU 메모리 제약 시 일부만 fine-tune" 기본값
+# n_hvg_genes: 비워두면(기본) 전체 유전자 사용. 예: 2000 -> 상위 2000개 HVG로 줄인 뒤
+# 19264-vocab으로 재배열(나머지는 0-padding) - "gene 수" sweep 축으로 benchmark/grid.py의
+# max_seq_len 값이 여기로 매핑된다(run_scfoundation_sweep.py의 _OVERRIDE_KEY_MAP 참고).
+n_hvg_genes: null
+
+# --- sweep 축 기본값 (benchmark/grid.py의 override가 이 값들을 덮어씀) ---
+precision: fp16
+activation_checkpointing: false
