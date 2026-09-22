@@ -228,6 +228,7 @@ _GRID_FUNCS = {
     "smoke": grid_mod.default_smoke_grid,
     "coarse": grid_mod.coarse_grid,
     "gene_length": grid_mod.scfoundation_gene_length_grid,
+    "priority": grid_mod.scfoundation_priority_grid,
 }
 # 2026-09-22 추가: scGPT의 run_scgpt_sweep.py와 같은 패턴(_GRID_FUNCS 딕셔너리)으로
 # --grid 선택지를 확장 - gene_length_grid로 gene-count 단독 효과를 본다.

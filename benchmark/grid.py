@@ -238,3 +238,29 @@ def scfoundation_gene_length_grid():
                 activation_checkpointing=False)
     points = [100, 300, 700, 1200, 2000, 3000]
     return [dict(base, max_seq_len=p) for p in points]
+
+
+def scfoundation_priority_grid():
+    """2026-09-22 gene_length_grid() 후속 실험 - '평평한 구간(300~1200) + 급격한
+    quadratic 구간(1200~3000)' 전환점(elbow)을 정밀하게 잡고, scGPT처럼 batch에 대한
+    OOM 경계도 확인한다 (교수님의 "config 자동 선택" 연구 질문에 직접 답하는 실험).
+
+    1) elbow 정밀화: batch=8 고정, n_hvg_genes를 1200~2000 사이 100 단위로 촘촘히.
+    2) batch-불변성 체크: 같은 elbow 구간을 batch=32에서도 반복 - floor가 모델
+       가중치(배치 무관)에서 오는 거라면 elbow 위치가 batch와 무관해야 한다.
+    3) OOM/batch 경계: gene=3000(=데이터셋 전체 유전자) 고정, batch=8→3552MB /
+       batch=32→10898MB 실측을 선형 외삽하면 batch~64에서 20.7GB(카드 23.6GB의 88%),
+       batch~80에서 25.6GB(초과)로 추정 - 48/64/80/96으로 브래킷을 잡는다.
+    """
+    combos = []
+    elbow_points = [1300, 1400, 1500, 1600, 1700, 1800, 1900]
+    for g in elbow_points:
+        combos.append(dict(precision="fp16", micro_batch_size=8, grad_accum_steps=1,
+                            activation_checkpointing=False, max_seq_len=g))
+    for g in elbow_points:
+        combos.append(dict(precision="fp16", micro_batch_size=32, grad_accum_steps=1,
+                            activation_checkpointing=False, max_seq_len=g))
+    for b in [48, 64, 80, 96]:
+        combos.append(dict(precision="fp16", micro_batch_size=b, grad_accum_steps=1,
+                            activation_checkpointing=False, max_seq_len=3000))
+    return combos
