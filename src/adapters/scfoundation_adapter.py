@@ -191,6 +191,17 @@ class ScFoundationAdapter(ModelAdapter):
         adata.obs["str_batch"] = "0"
         adata_test.obs["str_batch"] = "1"
 
+        # 2026-09-22 수정: reference(c_data.h5ad)는 var_names가 이미 gene symbol
+        # (CFH, BAD...)인데 query(filtered_ms_adata.h5ad)는 var_names가 Ensembl ID
+        # (ENSG...)라서, 이 재색인 없이 concatenate()하면 var_names 교집합이 0이 돼
+        # 유전자가 전부 사라진다(실측 확인: concatenate 후 0 vars). scgpt_adapter.py의
+        # load_data()가 이미 동일한 문제를 겪고 같은 방식(양쪽 var['gene_name'] 컬럼을
+        # index로 재설정)으로 고쳐뒀으므로 그대로 재사용한다.
+        if "gene_name" in adata.var.columns:
+            adata.var.set_index(adata.var["gene_name"], inplace=True)
+        if "gene_name" in adata_test.var.columns:
+            adata_test.var.set_index(adata_test.var["gene_name"], inplace=True)
+
         adata_test_raw = adata_test.copy()
         adata = adata.concatenate(adata_test, batch_key="str_batch")
 
@@ -232,7 +243,28 @@ class ScFoundationAdapter(ModelAdapter):
         import pandas as pd
         import scanpy as sc
 
-        from get_embedding import main_gene_selection  # scFoundation repo, sys.path에 이미 추가됨
+        _add_scfoundation_repo_to_path(cfg["scfoundation_repo_dir"])  # 2026-09-21 수정: preprocess()가
+        # get_embedding을 import하기 전에 sys.path에 repo를 추가해야 하는데, 원래는 load_model()에서만
+        # 호출돼서 preprocess()가 load_model()보다 먼저 실행되는 순서상 여기선 항상 실패했음
+        # (idempotent라 load_model()에서 또 호출돼도 안전 - _add_scfoundation_repo_to_path 정의 참고)
+        import os as _os  # 2026-09-22 수정(2): get_embedding.py 59번째 줄도 모듈 최상단에서
+        # pd.read_csv('./OS_scRNA_gene_index.19264.tsv', ...)를 상대경로로 무조건 실행함.
+        # WORKDIR이 /workspace라 그 경로가 없으므로, import하는 순간만 cwd를
+        # <scfoundation_repo_dir>/model 로 옮겼다가 복원한다.
+        import sys as _sys  # 2026-09-22 수정: get_embedding.py 32번째 줄
+        # args = parser.parse_args()가 main_gene_selection 정의(36번째 줄)보다도
+        # 앞에서, __main__ 가드 밖에서 무조건 실행됨. import하는 시점의 sys.argv
+        # (run_scfoundation_sweep.py 자신의 --config/--override-json 등)를 그대로
+        # 파싱하려다 죽으므로, import하는 순간만 sys.argv를 비워뒀다가 복원한다.
+        _saved_argv = _sys.argv
+        _sys.argv = [_saved_argv[0]]
+        _saved_cwd = _os.getcwd()
+        _os.chdir(_os.path.join(cfg["scfoundation_repo_dir"], "model"))
+        try:
+            from get_embedding import main_gene_selection  # scFoundation repo, sys.path에 이미 추가됨
+        finally:
+            _sys.argv = _saved_argv
+            _os.chdir(_saved_cwd)
 
         if cfg.get("data_is_raw", False):
             sc.pp.normalize_total(adata, target_sum=1e4)
@@ -290,7 +322,11 @@ class ScFoundationAdapter(ModelAdapter):
 
         train_ds = SimpleArrayDataset(torch.from_numpy(X_train), torch.from_numpy(y_train).long())
         valid_ds = SimpleArrayDataset(torch.from_numpy(X_valid), torch.from_numpy(y_valid).long())
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+        # 2026-09-22 수정: 분류 헤드에 BatchNorm1d가 있어서 마지막 배치가 1개로 남으면
+        # (예: train 7059개 / batch_size=2 -> 마지막 배치 1개) 학습 중
+        # "Expected more than 1 value per channel" ValueError로 죽는다. drop_last=True로
+        # 그 자투리 배치를 건너뛴다 (실측 확인: micro_batch_size=2에서도 발생했었음).
         valid_loader = DataLoader(valid_ds, batch_size=eval_batch_size, shuffle=False)
         logger.info(f"train: {len(train_ds)}개, valid: {len(valid_ds)}개 (19264-유전자 dense 텐서)")
         return {"train_loader": train_loader, "valid_loader": valid_loader}
