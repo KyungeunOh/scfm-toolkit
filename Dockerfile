@@ -80,6 +80,22 @@ RUN python -c "import torch; print('torch', torch.__version__, torch.version.cud
     && python -c "import scanpy; print('scanpy', scanpy.__version__)" \
     && python -c "import anndata; print('anndata', anndata.__version__)"
 
+
+# -------------------------------------------------------------------------
+# scFoundation 전용 의존성 (2026-09 memory-benchmark 브랜치 추가)
+#   반드시 --no-deps로 설치할 것 - local_attention/hyper_connections를 일반
+#   설치하면 버전 미고정 torch 의존성 때문에 pip가 torch를 2.14.0으로 새로
+#   설치해버려서(위에서 이미 설치된 torch==2.0.1+cu117과 충돌), torchtext의
+#   컴파일된 .so가 ABI 불일치로 깨진다(undefined symbol 에러, 서버에서 실제로
+#   재현 확인함, 2026-09-21). --no-deps로 설치하면 torch는 그대로 두고 이
+#   두 패키지만 추가된다(둘 다 순수 파이썬, 필요한 건 이미 설치된 torch/einops뿐).
+# -------------------------------------------------------------------------
+COPY requirements-scfoundation.txt /tmp/requirements-scfoundation.txt
+RUN pip install --no-cache-dir --no-deps -r /tmp/requirements-scfoundation.txt
+
+RUN python -c "import torch; assert torch.__version__.startswith('2.0.1'), f'torch가 바뀜: {torch.__version__}'" \
+    && python -c "import local_attention; print('local_attention ok')" \
+    && python -c "import scgpt; print('scgpt ok (local_attention 설치 후에도 안 깨짐)')"
 # -------------------------------------------------------------------------
 # 애플리케이션 코드 복사 (이후 단계에서 작성할 src/)
 # -------------------------------------------------------------------------
