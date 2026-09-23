@@ -202,3 +202,37 @@ CSV를 새로 만드는 경우(`--out`에 아직 없는 파일명, 예: `scgpt_s
       `--grid gene_length`로 실행 (`bash benchmark/run_benchmark.sh gene_length`)
 - [ ] run.py 완전 통합: scFoundation을 mode: finetune_predict CLI로도 돌릴 수
       있게 base.py의 load_vocab_full 시그니처 확장 (scgpt/geneformer 영향 검토 필요)
+
+## scFoundation GPU 검증 + priority_grid 결과 (2026-09-22~23)
+
+### 첫 GPU 실행에서 발견/수정한 버그 5개 (`src/adapters/scfoundation_adapter.py`)
+1. `preprocess()`가 `get_embedding` import 전에 `sys.path`에 repo를 추가 안 함 (순서 버그, `load_model()`에만 있었음)
+2. `get_embedding.py` 모듈 최상단 `argparse.parse_args()`가 우리 CLI 인자를 파싱해 죽음 → import 순간만 `sys.argv` 임시 치환
+3. 같은 파일의 gene index tsv 상대경로 읽기(`./OS_scRNA_gene_index.19264.tsv`) → import 순간만 cwd를 `repo/model`로 임시 이동
+4. `load_data()`에서 reference(gene symbol)/query(Ensembl ID) 유전자 이름 형식이 안 맞아 `concatenate()` 후 유전자 0개로 사라짐 → `gene_name` 컬럼으로 재색인(scgpt_adapter.py와 동일 방식)
+5. 분류 헤드 `BatchNorm1d` + `DataLoader`의 `drop_last` 누락으로 마지막 배치가 1개 남으면 학습 크래시 → `drop_last=True`
+
+### smoke grid 결과 (5개 조합 전부 success)
+precision/batch/max_seq_len(=n_hvg_genes)에 따라 peak_allocated_mb 1273~10898MB, accuracy 0.58~0.86.
+**activation_checkpointing=True는 scfoundation_adapter 미지원이라 효과 없음** (peak_allocated_mb 10898.49 vs 10898.21, notes 컬럼에 명시) — scGPT는 checkpointing이 OOM 경계를 크게 밀어내는 것과 대조적. "모델마다 적절한 설정이 다르다"는 교수님 질문에 대한 가장 직접적인 증거.
+
+### gene_length_grid + priority_grid — gene 수 스케일링 (batch=8 기준, 100~3000)
+| n_hvg_genes | peak_allocated_mb |
+|---|---|
+| 100 | 1056.36 |
+| 300~1200 | 1274~1325 (거의 평평 — 모델 가중치 메모리가 floor로 작용) |
+| 1300~1900 | 1392~1903 (완만히 가속) |
+| 2000 | 1988.04 |
+| 3000 | 3550.10 |
+
+1200 이상 9개 지점 quadratic 피팅 R²=0.9996 (linear는 R²=0.965) — **scGPT와 동일하게 quadratic**이지만, 낮은 gene 수에서는 모델 자체 파라미터(1억개, 그중 1400만개 학습)가 만드는 메모리 바닥에 가려 거의 안 보이다가 1200 이후 뚜렷해짐. `n_hvg_genes=100`일 때 accuracy가 0.065(사실상 랜덤, 18-class 기준 5.5%)로 폭락하는데 메모리는 거의 안 줄어(1056 vs 1274MB) — **gene 수 축소가 메모리 절약 대비 생물학적 정보 손실이 훨씬 큰 비효율적 수단**임을 정량적으로 확인.
+
+batch=32에서 같은 구간 반복 결과, gene당 증가율이 batch=8 대비 정확히 ~3.9배 (naive 배치비 32/8=4배와 거의 일치) — **quadratic 곡선의 모양 자체는 batch와 무관**, batch는 전체를 선형 스케일업만 함 (self-attention 메모리의 `batch × L²` 이론과 일치).
+
+### OOM/batch 경계 (gene=3000 고정)
+batch 48(15.9GB)/64(20.9GB) 성공, 80/96 OOM — 경계는 64~80 사이, 선형 외삽(311.82MB/batch)이 정확히 들어맞음.
+**주의**: batch=80이 OOM난 시점의 peak_allocated(17.79GB)는 오히려 성공한 batch=64(20.87GB)보다 낮음 — PyTorch 캐싱 할당자의 메모리 파편화 때문에 OOM 경계가 `peak_allocated_mb`만으로는 정확히 예측 안 됨. **자동 설정 선택 시 예측 경계값을 그대로 쓰지 말고 안전 마진이 필요**하다는 실증 근거.
+
+### 남은 작업 (업데이트)
+- ~~scFoundation 첫 GPU 실행~~ / ~~gene 수 quadratic 재현 여부~~ / ~~OOM 경계~~ — **모두 완료**
+- **(미착수, 다음 단계)** scPEFT 공식 저장소(github.com/laolintou/scPEFT)를 scGPT/scFoundation에 적용해 비교군 ②③④ 확보 — scFoundation 지원 범위 미확인 상태로 시작해야 함
