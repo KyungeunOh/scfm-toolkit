@@ -315,35 +315,51 @@ class ScFoundationAdapter(ModelAdapter):
         X_ref = X_full[ref_mask]
         y_ref = adata.obs.loc[ref_mask, "celltype_id"].to_numpy()
 
-        X_train, X_valid, y_train, y_valid = train_test_split(
-            X_ref, y_ref, test_size=1.0 - cfg.get("train_ratio", 0.9),
-            shuffle=True, random_state=cfg.get("seed", 42),
-        )
+        n_per_type = cfg.get("train_n_per_type")
+        if n_per_type:
+            # 2026-10-08 (교수님 요청): reference에서 type별 최대 N개만 학습에 사용.
+            # validation은 만들지 않고(희귀 type은 3~4개뿐이라 떼어낼 수 없음) 마지막 epoch
+            # 가중치를 쓴다. 평가는 predict()에서 query 전체로 한다.
+            from adapters.subsample_utils import stratified_subsample_indices
+            sel = stratified_subsample_indices(y_ref, int(n_per_type), cfg.get("seed", 42))
+            X_train, y_train = X_ref[sel], y_ref[sel]
+            X_valid, y_valid = None, None
+        else:
+            X_train, X_valid, y_train, y_valid = train_test_split(
+                X_ref, y_ref, test_size=1.0 - cfg.get("train_ratio", 0.9),
+                shuffle=True, random_state=cfg.get("seed", 42),
+            )
 
         train_ds = SimpleArrayDataset(torch.from_numpy(X_train), torch.from_numpy(y_train).long())
-        valid_ds = SimpleArrayDataset(torch.from_numpy(X_valid), torch.from_numpy(y_valid).long())
+        valid_ds = (SimpleArrayDataset(torch.from_numpy(X_valid), torch.from_numpy(y_valid).long())
+                    if X_valid is not None else None)
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
         # 2026-09-22 수정: 분류 헤드에 BatchNorm1d가 있어서 마지막 배치가 1개로 남으면
         # (예: train 7059개 / batch_size=2 -> 마지막 배치 1개) 학습 중
         # "Expected more than 1 value per channel" ValueError로 죽는다. drop_last=True로
         # 그 자투리 배치를 건너뛴다 (실측 확인: micro_batch_size=2에서도 발생했었음).
-        valid_loader = DataLoader(valid_ds, batch_size=eval_batch_size, shuffle=False)
-        logger.info(f"train: {len(train_ds)}개, valid: {len(valid_ds)}개 (19264-유전자 dense 텐서)")
-        return {"train_loader": train_loader, "valid_loader": valid_loader}
+        valid_loader = (DataLoader(valid_ds, batch_size=eval_batch_size, shuffle=False)
+                        if valid_ds is not None else None)
+        logger.info(f"train: {len(train_ds)}개, valid: {len(valid_ds) if valid_ds is not None else 0}개 "
+                    f"(19264-유전자 dense 텐서)")
+        _u, _c = np.unique(y_train, return_counts=True)
+        return {"train_loader": train_loader, "valid_loader": valid_loader,
+                "train_label_counts": {int(k): int(v) for k, v in zip(_u, _c)}}
 
     # ------------------------------------------------------------------
     def load_model(self, cfg: Dict[str, Any], num_types: int, device, vocab=None, model_configs=None):
         _add_scfoundation_repo_to_path(cfg["scfoundation_repo_dir"])
         unfrozen_layers = cfg.get("scfoundation_unfrozen_layers", 2)
+        frozen_embeddings = cfg.get("scfoundation_frozen_embeddings", True)
         model = ScFoundationClassifier(
             ckpt_path=cfg["scfoundation_ckpt_path"], num_types=num_types,
-            unfrozen_layers=unfrozen_layers,
+            unfrozen_layers=unfrozen_layers, frozen_embeddings=frozen_embeddings,
         ).build()
         model.to(device)
         n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
         n_total = sum(p.numel() for p in model.parameters())
         logger.info(f"모델 로드 완료 - 학습 가능 파라미터: {n_trainable:,}/{n_total:,} "
-                    f"(unfrozen_layers={unfrozen_layers})")
+                    f"(unfrozen_layers={unfrozen_layers}, frozen_embeddings={frozen_embeddings})")
         return model
 
     # ------------------------------------------------------------------
@@ -358,7 +374,7 @@ class ScFoundationAdapter(ModelAdapter):
         from torch.optim.lr_scheduler import StepLR
 
         train_loader = prepared_inputs["train_loader"]
-        valid_loader = prepared_inputs["valid_loader"]
+        valid_loader = prepared_inputs.get("valid_loader")  # None이면 validation 없음(마지막 epoch 사용)
 
         epochs = cfg["epochs"]
         lr = cfg.get("lr", 1e-4)
@@ -390,10 +406,27 @@ class ScFoundationAdapter(ModelAdapter):
         scheduler = StepLR(optimizer, step_size=1, gamma=cfg.get("schedule_ratio", 0.9))
 
         best_val_acc, best_epoch, best_state = -1.0, None, None
+        # 2026-10-14: scFoundation encoder의 nn.TransformerEncoderLayer는 dropout 기본값 0.1이 켜져 있다
+        # (transformer.py에서 dropout 미지정). 기존 실험은 model.train()으로 전체가 학습 모드였다.
+        # 전체 freeze(unfrozen_layers=0)에서만, encoder를 eval 모드(dropout 끔)로 고정하는 옵션.
+        # 2026-10-14 일반화: 학습하지 않는(frozen) block들만 eval 모드(dropout 끔)로 둔다.
+        #  - unfrozen_layers=0  : encoder 전체 eval (헤드만 train)
+        #  - unfrozen_layers=N  : 앞쪽 12-N개 block만 eval, 뒤쪽 N개(학습 구간)는 train 모드
+        #  - unfrozen_layers=12 : 변화 없음
+        _enc_eval = bool(cfg.get("scfoundation_encoder_eval", False))
+        _n_unfrozen = cfg.get("scfoundation_unfrozen_layers", 2)
+        if _enc_eval:
+            logger.info(f"frozen 구간 eval 모드 (dropout 끔): unfrozen_layers={_n_unfrozen}, 학습 구간은 train 모드")
         logger.info(f"Fine-tuning 시작 (grad_accum_steps={accum_steps}, precision={precision or 'amp'})")
 
         for epoch in range(1, epochs + 1):
             model.train()
+            if _enc_eval:
+                if _n_unfrozen <= 0:
+                    model.encoder.eval()
+                else:
+                    for _blk in model.encoder.transformer_encoder[:-_n_unfrozen]:
+                        _blk.eval()
             total_loss = correct = total = 0
             optimizer.zero_grad()
             for step, batch in enumerate(train_loader):
@@ -420,7 +453,7 @@ class ScFoundationAdapter(ModelAdapter):
             model.eval()
             val_correct = val_total = 0
             with torch.no_grad():
-                for batch in valid_loader:
+                for batch in (valid_loader if valid_loader is not None else []):
                     x = batch["x"].to(device)
                     labels = batch["celltype_labels"].to(device)
                     with torch.cuda.amp.autocast(enabled=amp, dtype=autocast_dtype):
@@ -429,15 +462,30 @@ class ScFoundationAdapter(ModelAdapter):
                     val_total += len(labels)
             val_acc = val_correct / max(val_total, 1)
             logger.info(f"  Epoch {epoch:2d}/{epochs}  loss={total_loss/max(len(train_loader),1):.4f}  "
-                        f"train_acc={correct/max(total,1):.4f}  val_acc={val_acc:.4f}")
+                        f"train_acc={correct/max(total,1):.4f}  val_acc={(val_acc if valid_loader is not None else float('nan')):.4f}")
 
-            if val_acc > best_val_acc:
+            if valid_loader is None or val_acc > best_val_acc:
                 best_val_acc, best_epoch = val_acc, epoch
                 best_state = copy.deepcopy(model.state_dict())
 
         if best_state is not None:
             logger.info(f"best epoch: {best_epoch}/{epochs} (val_acc={best_val_acc:.4f}) 가중치로 예측 진행")
             model.load_state_dict(best_state)
+        if cfg.get("log_eval_train_acc", valid_loader is None):
+            # 진단(query 미사용): 학습 데이터를 predict()와 같은 조건(eval 모드, fp32)으로 평가한다.
+            # 학습 중 train_acc는 train 모드(BatchNorm 배치 통계, dropout) 값이라, 둘의 차이가 크면
+            # eval 때 붕괴할 위험 신호다 (pilot3에서 train loss는 낮은데 query F1이 붕괴한 설정이 있었음).
+            model.eval()
+            _c = _t = 0
+            with torch.no_grad():
+                for batch in train_loader:
+                    x = batch["x"].to(device)
+                    labels = batch["celltype_labels"].to(device)
+                    logits = model(x)
+                    _c += (logits.argmax(1) == labels).sum().item()
+                    _t += len(labels)
+            model._eval_train_acc = _c / max(_t, 1)
+            logger.info(f"  [진단] eval 모드 train_acc={model._eval_train_acc:.4f} (n={_t})")
         return model
 
     # ------------------------------------------------------------------

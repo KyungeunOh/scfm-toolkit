@@ -273,7 +273,7 @@ def main():
     _setup_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="base config.yaml 경로")
-    parser.add_argument("--grid", choices=["smoke", "coarse", "priority", "gene_length"], default="smoke",
+    parser.add_argument("--grid", choices=["smoke", "coarse", "priority", "gene_length", "ckpt_oom"], default="smoke",
                          help="smoke: 5개 조합(처음 실행 권장), "
                               "priority: 2026-09-16 smoke 결과 기반 축소 조합(~17개 - "
                               "batch=1 낮은 lr, batch 8~32 OOM 경계 refine, precision/"
@@ -298,6 +298,7 @@ def main():
         return
 
     _GRID_FUNCS = {
+    "ckpt_oom": grid_mod.scgpt_checkpointing_oom_grid,
         "smoke": grid_mod.default_smoke_grid,
         "priority": grid_mod.priority_grid,
         "gene_length": grid_mod.gene_length_grid,

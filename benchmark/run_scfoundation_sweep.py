@@ -69,6 +69,18 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
     cfg = apply_overrides(ctx["cfg_base"], override)
     run_id = blog.new_run_id()
 
+    if cfg.get("seed_torch", False):
+        # 2026-10-08: 같은 seed 반복이 서로 달랐던 문제(torch/numpy seed 미고정) 대응.
+        # head 초기화, DataLoader shuffle, dropout을 seed로 고정한다 (cuDNN/atomic 연산 때문에
+        # bit 단위 완전 재현까지는 보장하지 않음).
+        import random as _random
+        import numpy as _np
+        _s = int(cfg.get("seed", 42))
+        _random.seed(_s)
+        _np.random.seed(_s)
+        torch.manual_seed(_s)
+        torch.cuda.manual_seed_all(_s)
+
     row_kwargs = dict(
         run_id=run_id,
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
@@ -79,7 +91,9 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         n_cells=ctx["adata_raw"].n_obs,
         n_genes_input=override.get("max_seq_len", cfg.get("n_hvg_genes") or 19264),
         max_seq_len=override.get("max_seq_len", cfg.get("n_hvg_genes", "")),
-        finetune_method="full_ft",
+        finetune_method=("full_ft" if "scfoundation_unfrozen_layers" not in override else
+                         "ft_last%d_emb%s" % (override["scfoundation_unfrozen_layers"],
+                         "frozen" if override.get("scfoundation_frozen_embeddings", True) else "trainable")),
         precision=override.get("precision", cfg.get("precision", "")),
         micro_batch_size=override.get("micro_batch_size", cfg.get("batch_size")),
         grad_accum_steps=override.get("grad_accum_steps", cfg.get("grad_accum_steps", 1)),
@@ -92,6 +106,14 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         **blog.base_environment_fields(),
         **blog.gpu_fields(),
     )
+
+    if cfg.get("scfoundation_encoder_eval") and cfg.get("scfoundation_unfrozen_layers", 2) < 12:
+        row_kwargs["finetune_method"] = str(row_kwargs["finetune_method"]) + "_encEval"
+
+    if cfg.get("train_n_per_type"):
+        row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) +
+                               f" | n_per_type={cfg['train_n_per_type']} seed_torch={cfg.get('seed_torch', False)}"
+                               ).strip(" |")
 
     if memory_budget_gb is not None:
         try:
@@ -128,6 +150,10 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         )
         return
 
+    _eta = getattr(finetuned_holder.get("model"), "_eval_train_acc", None)
+    if _eta is not None:
+        row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) + f" | eval_train_acc={_eta:.4f}").strip(" |")
+
     macro_f1, accuracy = "", ""
     try:
         adata_result = adapter.predict(finetuned_holder["model"], adata, prepared, ctx["id2type"], cfg, device)
@@ -136,6 +162,7 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         y_pred = adata_result.obs["predictions"].astype(str)
         macro_f1 = round(f1_score(y_true, y_pred, average="macro", zero_division=0), 4)
         accuracy = round(float((y_true == y_pred).mean()), 4)
+        _write_pertype_outputs(csv_path, run_id, cfg, row_kwargs, prepared, ctx, y_true, y_pred)
     except Exception as e:
         row_kwargs["notes"] = (row_kwargs.get("notes", "") + f" | predict/f1 계산 실패: {e}").strip(" |")
 
@@ -147,6 +174,19 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         macro_f1=macro_f1, accuracy=accuracy,
         **row_kwargs,
     )
+
+
+def _write_pertype_outputs(csv_path, run_id, cfg, row_kwargs, prepared, ctx, y_true, y_pred):
+    """type별 P/R/F1(+학습에 쓴 세포 수)과 confusion matrix를 <out>_pertype.csv /
+    <out>_confusion.csv 에 append. 라벨 목록은 id2type 전체로 고정."""
+    from benchmark import pertype_metrics as ptm
+    labels = [str(ctx["id2type"][i]) for i in sorted(ctx["id2type"])]
+    train_counts = {str(ctx["id2type"][k]): v for k, v in (prepared.get("train_label_counts") or {}).items()}
+    meta = dict(run_id=run_id, scope=row_kwargs.get("finetune_method"),
+                n_per_type=cfg.get("train_n_per_type", ""), seed=cfg.get("seed", 42),
+                epochs=cfg.get("epochs", ""), micro_batch_size=row_kwargs.get("micro_batch_size"),
+                lr=row_kwargs.get("lr"))
+    ptm.write_pertype(Path(csv_path), meta, y_true, y_pred, labels, train_counts)
 
 
 def _setup_logging():
@@ -229,6 +269,23 @@ _GRID_FUNCS = {
     "coarse": grid_mod.coarse_grid,
     "gene_length": grid_mod.scfoundation_gene_length_grid,
     "priority": grid_mod.scfoundation_priority_grid,
+    "scope_lr": grid_mod.scfoundation_scope_lr_grid,
+    "scope_repeat": grid_mod.scfoundation_scope_repeat_grid,
+    "scope_fit": grid_mod.scfoundation_scope_fit_grid,
+    "scope_mem": grid_mod.scfoundation_scope_mem_grid,
+    "scope_perf": grid_mod.scfoundation_scope_perf_grid,
+    "scope_accum": grid_mod.scfoundation_scope_accum_grid,
+    "scope_accum_repeat": grid_mod.scfoundation_scope_accum_repeat_grid,
+    "scope_seed": grid_mod.scfoundation_scope_seed_grid,
+    "subsample_pilot": grid_mod.scfoundation_subsample_pilot_grid,
+    "subsample": grid_mod.scfoundation_subsample_grid,
+    "subsample_pilot2": grid_mod.scfoundation_subsample_pilot2_grid,
+    "subsample_pilot3": grid_mod.scfoundation_subsample_pilot3_grid,
+    "subsample_diag": grid_mod.scfoundation_subsample_diag_grid,
+    "subsample_main": grid_mod.scfoundation_subsample_main_grid,
+    "subsample_all": grid_mod.scfoundation_subsample_all_grid,
+    "subsample_all_lr1e4": grid_mod.scfoundation_subsample_all_lr1e4_grid,
+    "subsample_n50_lr1e4": grid_mod.scfoundation_subsample_n50_lr1e4_grid,
 }
 # 2026-09-22 추가: scGPT의 run_scgpt_sweep.py와 같은 패턴(_GRID_FUNCS 딕셔너리)으로
 # --grid 선택지를 확장 - gene_length_grid로 gene-count 단독 효과를 본다.

@@ -109,6 +109,12 @@ def set_memory_budget_gb(budget_gb: Optional[float], device=None) -> bool:
     if not torch.cuda.is_available():
         return False
     device = device if device is not None else torch.cuda.current_device()
+    # torch.device("cuda")처럼 index가 없으면 set_per_process_memory_fraction이
+    # "Expected a torch.device with a specified index" 오류를 낸다 (2026-10 scFoundation sweep에서 확인).
+    if isinstance(device, str):
+        device = torch.device(device)
+    if isinstance(device, torch.device) and device.index is None:
+        device = torch.cuda.current_device()
     total_gb = torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)
     if budget_gb > total_gb:
         raise ValueError(

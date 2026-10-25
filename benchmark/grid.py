@@ -264,3 +264,271 @@ def scfoundation_priority_grid():
         combos.append(dict(precision="fp16", micro_batch_size=b, grad_accum_steps=1,
                             activation_checkpointing=False, max_seq_len=3000))
     return combos
+
+
+def scgpt_checkpointing_oom_grid():
+    """checkpointing=True 상태에서 scGPT의 실제 OOM 경계를 찾기 위한 coarse 탐색.
+    기존 priority_grid는 batch<=28까지만(전부 성공, 5.5GB 이하) 테스트해서 진짜 경계를
+    확인한 적이 없음. ckpt=False 쪽 batch당 증가율(~1.11GB/batch) 대비 ckpt=True는
+    ~0.17GB/batch(1/6.5 수준)로 관찰됐으므로, 24GB 도달 예상 지점(batch~130 근방)을
+    coarse하게 감싸는 5개 지점으로 탐색한다.
+    """
+    base = dict(precision="fp16", max_seq_len=3001, grad_accum_steps=1,
+                activation_checkpointing=True)
+    points = [64, 96, 128, 160, 192]
+    return [dict(base, micro_batch_size=p) for p in points]
+
+
+def scgpt_checkpointing_oom_grid():
+    """checkpointing=True 상태에서 scGPT의 실제 OOM 경계를 찾기 위한 coarse 탐색.
+    기존 priority_grid는 batch<=28까지만(전부 성공, 5.5GB 이하) 테스트해서 진짜 경계를
+    확인한 적이 없음. ckpt=False 쪽 batch당 증가율(~1.11GB/batch) 대비 ckpt=True는
+    ~0.17GB/batch(1/6.5 수준)로 관찰됐으므로, 24GB 도달 예상 지점(batch~130 근방)을
+    coarse하게 감싸는 5개 지점으로 탐색한다.
+    """
+    base = dict(precision="fp16", max_seq_len=3001, grad_accum_steps=1,
+                activation_checkpointing=True)
+    points = [64, 96, 128, 160, 192]
+    return [dict(base, micro_batch_size=p) for p in points]
+
+
+def scfoundation_scope_lr_grid():
+    """2026-10 교수님 후속 요청: scFoundation 학습 범위(unfrozen_layers)와 lr 변화 효과.
+    batch=32 / max_seq_len=3001 / fp16 고정 (기존 2블록 베이스라인 batch=32 -> 10.6GB와
+    직접 비교 가능). 순서: 메모리가 작은 조합부터 (full FT가 OOM이어도 앞 결과는 보존).
+    2블록+lr=1e-4는 기존 베이스라인이 있어 제외하되, 2블록+lr=3e-5는 'lr만 바꾼 대조군'으로 포함.
+    """
+    base = dict(precision="fp16", micro_batch_size=32, grad_accum_steps=1,
+                activation_checkpointing=False, max_seq_len=3001)
+    scopes = [
+        dict(scfoundation_unfrozen_layers=2, scfoundation_frozen_embeddings=True),
+        dict(scfoundation_unfrozen_layers=4, scfoundation_frozen_embeddings=True),
+        dict(scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=True),
+        dict(scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=False),
+    ]
+    combos = []
+    for scope in scopes:
+        for lr in [1e-4, 3e-5]:
+            if scope["scfoundation_unfrozen_layers"] == 2 and lr == 1e-4:
+                continue
+            combos.append(dict(base, lr=lr, **scope))
+    return combos
+
+
+def scfoundation_scope_repeat_grid():
+    """scope_lr 결과(단일 실행)가 노이즈(F1 범위 ~0.05)와 구분되는지 확인하기 위한 반복.
+    같은 GPU(A6000)에서 batch=32/lr=1e-4: 2블록 3회, 4블록 2회."""
+    base = dict(precision="fp16", micro_batch_size=32, grad_accum_steps=1,
+                activation_checkpointing=False, max_seq_len=3001, lr=1e-4)
+    combos = []
+    for _ in range(3):
+        combos.append(dict(base, scfoundation_unfrozen_layers=2, scfoundation_frozen_embeddings=True))
+    for _ in range(2):
+        combos.append(dict(base, scfoundation_unfrozen_layers=4, scfoundation_frozen_embeddings=True))
+    return combos
+
+
+def scfoundation_scope_fit_grid():
+    """교수님 질문4: 4블록/12블록/full FT를 12GiB 안에 넣을 수 있는 batch로 재측정.
+    선형 외삽 예측: 4블록 b16 ~10.5GiB, 12블록 b4 ~8.7GiB, full b4 ~9.0GiB (검증 대상)."""
+    base = dict(precision="fp16", grad_accum_steps=1, activation_checkpointing=False,
+                max_seq_len=3001, lr=1e-4)
+    return [
+        dict(base, micro_batch_size=16, scfoundation_unfrozen_layers=4, scfoundation_frozen_embeddings=True),
+        dict(base, micro_batch_size=4, scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=True),
+        dict(base, micro_batch_size=4, scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=False),
+    ]
+
+
+def scfoundation_scope_mem_grid():
+    """교수님 질문4 - 12GiB(12288MB) 경계 탐색용 메모리 전용 그리드 (epochs=1).
+    1 epoch의 F1/accuracy는 의미 없음 - peak_allocated_mb만 본다.
+    선형 외삽 예측(검증 대상): 4블록 b12~8.9 / b16~10.5 / b20~12.8GiB,
+    12블록 b4~8.7 / b6~12.0 / b8~15.4GiB, full(emb 학습) b4~9.0 / b6~12.2GiB."""
+    base = dict(precision="fp16", grad_accum_steps=1, activation_checkpointing=False,
+                max_seq_len=3001, lr=1e-4, epochs=1)
+    combos = []
+    for b in (12, 16, 20):
+        combos.append(dict(base, micro_batch_size=b, scfoundation_unfrozen_layers=4,
+                           scfoundation_frozen_embeddings=True))
+    for b in (4, 6, 8):
+        combos.append(dict(base, micro_batch_size=b, scfoundation_unfrozen_layers=12,
+                           scfoundation_frozen_embeddings=True))
+    for b in (4, 6):
+        combos.append(dict(base, micro_batch_size=b, scfoundation_unfrozen_layers=12,
+                           scfoundation_frozen_embeddings=False))
+    return combos
+
+
+def scfoundation_scope_perf_grid():
+    """12GiB 상한 안에 들어가는 조합의 10 epoch 성능 확인 (scope_mem 결과 기반).
+    우선순위 순: full FT b4 -> 12블록(emb freeze) b4 -> 4블록 b16. 모두 lr=1e-4, epochs는 config(10).
+    scope_mem의 1 epoch peak: full b4 8.20 / 12블록 b4 8.08 / 4블록 b16 10.01 GiB
+    (10 epoch peak가 이와 같은지가 '1 epoch peak 가정'의 검증)."""
+    base = dict(precision="fp16", grad_accum_steps=1, activation_checkpointing=False,
+                max_seq_len=3001, lr=1e-4)
+    return [
+        dict(base, micro_batch_size=4, scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=False),
+        dict(base, micro_batch_size=4, scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=True),
+        dict(base, micro_batch_size=16, scfoundation_unfrozen_layers=4, scfoundation_frozen_embeddings=True),
+    ]
+
+
+def scfoundation_scope_accum_grid():
+    """full FT를 12GiB 안에 넣되(micro-batch 4 -> ~8.6GiB) effective batch를 32로 유지.
+    scope_perf(batch 4, accum 1)에서 F1이 0.63대로 낮았던 원인이 '범위'인지 'step 수/lr'인지 분리한다.
+    micro_batch 4 x grad_accum 8 = effective 32 (베이스라인과 동일한 step 수)."""
+    base = dict(precision="fp16", micro_batch_size=4, grad_accum_steps=8,
+                activation_checkpointing=False, max_seq_len=3001,
+                scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=False)
+    return [dict(base, lr=1e-4), dict(base, lr=3e-5)]
+
+
+def scfoundation_scope_accum_repeat_grid():
+    """scope_accum의 full FT(micro 4 x accum 8 = effective 32, lr=1e-4)를 2회 더 반복해
+    n=3으로 만든다 (2블록 n=6, 4블록 n=3과 비교하기 위함)."""
+    base = dict(precision="fp16", micro_batch_size=4, grad_accum_steps=8,
+                activation_checkpointing=False, max_seq_len=3001,
+                scfoundation_unfrozen_layers=12, scfoundation_frozen_embeddings=False, lr=1e-4)
+    return [dict(base), dict(base)]
+
+
+def scfoundation_scope_seed_grid():
+    """scope_repeat의 2블록(batch 32, lr 1e-4) 설정을 그대로 두고 seed만 43/44/45로 바꾼다.
+    (seed는 train/valid 분할을 바꾸며, 학습 난수는 별도로 고정되지 않는다)"""
+    base = [c for c in scfoundation_scope_repeat_grid()
+            if c.get("scfoundation_unfrozen_layers") == 2][0]
+    return [dict(base, seed=s) for s in (43, 44, 45)]
+
+
+# ---------------------------------------------------------------------------
+# 교수님 2026-10-08 요청: reference를 type별 N개로 줄이고, scope별로 비교
+# ---------------------------------------------------------------------------
+_SUBSAMPLE_SCOPES = (
+    # (이름, scfoundation_unfrozen_layers, scfoundation_frozen_embeddings)
+    ("freeze", 0, True),    # encoder 전체 freeze + 분류 헤드만 학습
+    ("last2", 2, True),     # 마지막 2 block + 헤드 (기존 기본값)
+    ("last4", 4, True),     # 마지막 4 block + 헤드
+    ("full", 12, False),    # 12 block + embedding 전부 (full fine-tuning)
+)
+
+
+def scfoundation_subsample_grid(ns=(10, 50), seeds=(42, 43, 44, 45, 46), epochs=10, freeze_eval=True):
+    """scope 4 x N x seed. 같은 (N, seed)는 scope와 무관하게 같은 subsample을 쓴다.
+    micro batch 8(config 기본값), accumulation 없음, 메모리 cap 없음(이번 실험은 성능 비교 목적)."""
+    base = [c for c in scfoundation_scope_repeat_grid()
+            if c.get("scfoundation_unfrozen_layers") == 2][0]
+    out = []
+    for s in seeds:
+        for n in ns:
+            for _name, u, fe in _SUBSAMPLE_SCOPES:
+                out.append(dict(base, micro_batch_size=8, grad_accum_steps=1, epochs=epochs,
+                                scfoundation_unfrozen_layers=u, scfoundation_frozen_embeddings=fe,
+                                train_n_per_type=n, seed=s, seed_torch=True))
+            if freeze_eval:
+                # 추가 조건: 전체 freeze + encoder eval(dropout 끔). encoder dropout 0.1 효과를 분리하기 위함.
+                out.append(dict(base, micro_batch_size=8, grad_accum_steps=1, epochs=epochs,
+                                scfoundation_unfrozen_layers=0, scfoundation_frozen_embeddings=True,
+                                scfoundation_encoder_eval=True,
+                                train_n_per_type=n, seed=s, seed_torch=True))
+    return out
+
+
+def scfoundation_subsample_pilot_grid():
+    """파일럿: N=10, seed=42, 전체 freeze / full FT / 전체 freeze+encoder eval 3개만."""
+    return [c for c in scfoundation_subsample_grid(ns=(10,), seeds=(42,))
+            if c["scfoundation_unfrozen_layers"] in (0, 12)]
+
+
+def scfoundation_subsample_pilot2_grid():
+    """파일럿2(수렴 점검, N=10, seed=42): 전체 freeze(dropout 켬/끔) x lr {3e-4, 1e-3, 3e-3} = 6개
+    + 마지막 2/4 block (lr 1e-4) = 2개. 학습 곡선(train loss/acc)을 보고 freeze의 lr을 정하기 위함.
+    (lr 선택은 train loss 기준으로만 하고 query F1은 선택에 쓰지 않는다.)"""
+    out = []
+    for c in scfoundation_subsample_grid(ns=(10,), seeds=(42,)):
+        u = c["scfoundation_unfrozen_layers"]
+        if u == 0:
+            for lr in (3e-4, 1e-3, 3e-3):
+                out.append(dict(c, lr=lr))
+        elif u in (2, 4):
+            out.append(c)
+    return out
+
+
+def scfoundation_subsample_pilot3_grid():
+    """파일럿3(N=10, seed=42, 16개): 부분 fine-tuning scope의 학습이 수렴했는지 + frozen 구간 eval 효과.
+    (a) 현재 프로토콜(frozen 구간도 train 모드): last2/last4 x lr {3e-4,1e-3,3e-3}, full x {3e-4,1e-3}
+    (b) frozen 구간 eval: last2/last4 x lr {1e-4,3e-4,1e-3,3e-3}
+    (lr 선택은 train loss 기준으로만 한다. query F1은 선택에 쓰지 않는다.)"""
+    by_u = {c["scfoundation_unfrozen_layers"]: c
+            for c in scfoundation_subsample_grid(ns=(10,), seeds=(42,), freeze_eval=False)}
+    out = []
+    for u, lrs in ((2, (3e-4, 1e-3, 3e-3)), (4, (3e-4, 1e-3, 3e-3)), (12, (3e-4, 1e-3))):
+        for lr in lrs:
+            out.append(dict(by_u[u], lr=lr))
+    for u in (2, 4):
+        for lr in (1e-4, 3e-4, 1e-3, 3e-3):
+            out.append(dict(by_u[u], lr=lr, scfoundation_encoder_eval=True))
+    return out
+
+
+def scfoundation_subsample_diag_grid():
+    """진단(N=10, seed=42, 3개): pilot3에서 query로 붕괴했던 설정이 '학습 데이터의 eval 모드 정확도'로
+    미리 드러나는지 확인한다 (정상 설정 1개 포함)."""
+    by_u = {c["scfoundation_unfrozen_layers"]: c
+            for c in scfoundation_subsample_grid(ns=(10,), seeds=(42,), freeze_eval=False)}
+    return [dict(by_u[2], lr=1e-3, scfoundation_encoder_eval=True),   # pilot3: F1 0.309 (붕괴)
+            dict(by_u[2], lr=1e-3),                                   # pilot3: F1 0.079 (붕괴)
+            dict(by_u[2], lr=3e-4, scfoundation_encoder_eval=True)]   # pilot3: F1 0.701 (정상)
+
+
+# 본 실험 조건. lr은 pilot2/3(N=10, seed 42)에서 'train loss'만으로 정했다 (query F1은 쓰지 않음).
+# 규칙: 발산하지 않은 run 중 마지막 train loss가 가장 낮은 lr. 단, 최저 loss와 10% 이내면 더 작은 lr.
+_MAIN_CONDITIONS = (
+    # (이름, unfrozen_layers, frozen_embeddings, encoder_eval(frozen 구간 eval), lr)
+    ("freeze_eval", 0, True, True, 3e-3),
+    ("last2_eval", 2, True, True, 3e-4),
+    ("last4_eval", 4, True, True, 3e-4),
+    ("full", 12, False, False, 1e-4),
+    ("freeze_train", 0, True, False, 3e-3),    # 기존 프로토콜(frozen 구간도 train 모드) 민감도 확인용
+    ("last2_train", 2, True, False, 3e-4),
+    ("last4_train", 4, True, False, 3e-4),
+)
+
+
+def scfoundation_subsample_main_grid(ns=(10, 50), seeds=(42, 43, 44, 45, 46), epochs=10):
+    """본 실험: 7개 조건 x N x seed = 70회. 같은 (N, seed)는 조건과 무관하게 같은 subsample."""
+    base = [c for c in scfoundation_scope_repeat_grid()
+            if c.get("scfoundation_unfrozen_layers") == 2][0]
+    out = []
+    for s in seeds:
+        for n in ns:
+            for _name, u, fe, ev, lr in _MAIN_CONDITIONS:
+                c = dict(base, micro_batch_size=8, grad_accum_steps=1, epochs=epochs,
+                         scfoundation_unfrozen_layers=u, scfoundation_frozen_embeddings=fe,
+                         train_n_per_type=n, seed=s, seed_torch=True, lr=lr)
+                if ev:
+                    c["scfoundation_encoder_eval"] = True
+                out.append(c)
+    return out
+
+
+def scfoundation_subsample_all_grid(seeds=(42, 43, 44), epochs=10):
+    """N=전체 기준선: reference 7,844개를 전부 학습에 사용(validation 없음, 마지막 epoch), 본 실험과 같은 프로토콜.
+    train_n_per_type=100000 은 'type당 최대 100000개' = 전부라는 뜻. 조건은 frozen eval 3개 + full FT = 4개."""
+    return [c for c in scfoundation_subsample_main_grid(ns=(100000,), seeds=seeds, epochs=epochs)
+            if c.get("scfoundation_encoder_eval") or c["scfoundation_unfrozen_layers"] == 12]
+
+
+def scfoundation_subsample_all_lr1e4_grid(seeds=(42, 43, 44), epochs=10):
+    """N=전체에서 lr=3e-4 의 부분 fine-tuning(2-block, 4-block, frozen eval)이 불안정했던 것의 재실행: lr=1e-4.
+    사전 규칙(train 모드 acc - eval 모드 train acc > 0.2 이면 lr/3 재실행) 적용. 같은 조건 3 seed 전부 다시 돌린다."""
+    return [dict(c, lr=1e-4) for c in scfoundation_subsample_all_grid(seeds=seeds, epochs=epochs)
+            if c["scfoundation_unfrozen_layers"] in (2, 4)]
+
+
+def scfoundation_subsample_n50_lr1e4_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """민감도 분석: N=50에서 2-block, 4-block(frozen eval)을 lr=1e-4로. 본 실험(lr 3e-4)과 같은 세포 subsample(paired).
+    목적: N=50의 'full 최고' 순위가 부분 scope의 lr 선택에 의존하는지 확인. 두 lr 결과를 모두 보고하며 lr 선택에는 쓰지 않는다."""
+    return [dict(c, lr=1e-4) for c in scfoundation_subsample_main_grid(ns=(50,), seeds=seeds, epochs=epochs)
+            if c.get("scfoundation_encoder_eval") and c["scfoundation_unfrozen_layers"] in (2, 4)]
