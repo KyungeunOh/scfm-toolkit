@@ -153,6 +153,9 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
     _eta = getattr(finetuned_holder.get("model"), "_eval_train_acc", None)
     if _eta is not None:
         row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) + f" | eval_train_acc={_eta:.4f}").strip(" |")
+    _etr = getattr(finetuned_holder.get("model"), "_eval_train_acc_recal", None)
+    if _etr is not None:
+        row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) + f" | eval_train_acc_recal={_etr:.4f}").strip(" |")
 
     macro_f1, accuracy = "", ""
     try:
@@ -163,6 +166,17 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         macro_f1 = round(f1_score(y_true, y_pred, average="macro", zero_division=0), 4)
         accuracy = round(float((y_true == y_pred).mean()), 4)
         _write_pertype_outputs(csv_path, run_id, cfg, row_kwargs, prepared, ctx, y_true, y_pred)
+        if "predictions_orig" in adata_result.obs.columns:
+            # bn_recalibrate: macro_f1/accuracy 열은 BN 통계를 재계산한 평가, 원래 통계 평가는 notes 와 로그에 기록
+            try:
+                _yo = adata_result.obs["predictions_orig"].astype(str)
+                _f1o = round(f1_score(y_true, _yo, average="macro", zero_division=0), 4)
+                _acco = round(float((y_true == _yo).mean()), 4)
+                row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) +
+                                       f" | bn_recal=1(macro_f1/accuracy 열=재계산 통계) 원래통계 f1={_f1o} acc={_acco}").strip(" |")
+                print(f"  [BNRECAL] query macro_f1 원래 통계={_f1o} / 재계산 통계={macro_f1}   accuracy {_acco} / {accuracy}", flush=True)
+            except Exception as _e:
+                row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) + f" | bn_orig 평가 실패: {_e}").strip(" |")
     except Exception as e:
         row_kwargs["notes"] = (row_kwargs.get("notes", "") + f" | predict/f1 계산 실패: {e}").strip(" |")
 
@@ -286,6 +300,8 @@ _GRID_FUNCS = {
     "subsample_all": grid_mod.scfoundation_subsample_all_grid,
     "subsample_all_lr1e4": grid_mod.scfoundation_subsample_all_lr1e4_grid,
     "subsample_n50_lr1e4": grid_mod.scfoundation_subsample_n50_lr1e4_grid,
+    "bn_diag": grid_mod.scfoundation_bn_diag_grid,
+    "bn_recal": grid_mod.scfoundation_bn_recal_grid,
 }
 # 2026-09-22 추가: scGPT의 run_scgpt_sweep.py와 같은 패턴(_GRID_FUNCS 딕셔너리)으로
 # --grid 선택지를 확장 - gene_length_grid로 gene-count 단독 효과를 본다.

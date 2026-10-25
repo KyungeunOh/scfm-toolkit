@@ -532,3 +532,30 @@ def scfoundation_subsample_n50_lr1e4_grid(seeds=(42, 43, 44, 45, 46), epochs=10)
     목적: N=50의 'full 최고' 순위가 부분 scope의 lr 선택에 의존하는지 확인. 두 lr 결과를 모두 보고하며 lr 선택에는 쓰지 않는다."""
     return [dict(c, lr=1e-4) for c in scfoundation_subsample_main_grid(ns=(50,), seeds=seeds, epochs=epochs)
             if c.get("scfoundation_encoder_eval") and c["scfoundation_unfrozen_layers"] in (2, 4)]
+
+
+def scfoundation_bn_diag_grid(seeds=(42,), epochs=10):
+    """N=전체에서 2/4-block lr 3e-4 의 '학습은 정상, 평가에서 붕괴' 원인 진단 (교수님 2026-10-25 요청).
+    같은 설정(본 실험 N=전체 anchor, frozen eval)을 bn_diag=True 로 다시 돌린다: 4-block 3e-4(가장 크게 붕괴), 2-block 3e-4,
+    대조군 4-block 1e-4. query 는 진단에 쓰지 않는다. seed_torch 라도 GPU 비결정성 때문에 같은 붕괴가 재현되는지는 보장되지 않는다."""
+    base = scfoundation_subsample_all_grid(seeds=seeds, epochs=epochs)
+    out = []
+    for s in seeds:
+        for u, lr in ((4, 3e-4), (2, 3e-4), (4, 1e-4)):
+            c = [c for c in base if c["seed"] == s and c["scfoundation_unfrozen_layers"] == u and c.get("scfoundation_encoder_eval")][0]
+            tag = "nall_last%d_lr%g_s%d" % (u, lr, s)
+            out.append(dict(c, lr=lr, bn_diag=True, bn_diag_tag=tag, bn_diag_out="benchmark_results/bn_diag/%s.json" % tag))
+    return out
+
+
+def scfoundation_bn_recal_grid(seeds=(42,), epochs=10):
+    """BN running 통계 재계산 평가 (bn_diag 결과의 후속, 2026-10-25). bn_diag grid 와 같은 3개 조합(N=전체, seed 42):
+    4-block 3e-4, 2-block 3e-4, 4-block 1e-4(대조). bn_recalibrate=True 이면 macro_f1/accuracy 열은 재계산 통계,
+    원래 통계 결과는 notes(원래통계 f1=, acc=)와 로그([BNRECAL])에 같이 기록된다. query 는 통계 계산에 쓰지 않는다."""
+    base = scfoundation_subsample_all_grid(seeds=seeds, epochs=epochs)
+    out = []
+    for s in seeds:
+        for u, lr in ((4, 3e-4), (2, 3e-4), (4, 1e-4)):
+            c = [c for c in base if c["seed"] == s and c["scfoundation_unfrozen_layers"] == u and c.get("scfoundation_encoder_eval")][0]
+            out.append(dict(c, lr=lr, bn_recalibrate=True))
+    return out

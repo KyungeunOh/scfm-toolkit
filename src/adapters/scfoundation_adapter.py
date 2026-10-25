@@ -404,6 +404,14 @@ class ScFoundationAdapter(ModelAdapter):
         criterion = nn.CrossEntropyLoss()
         optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
         scheduler = StepLR(optimizer, step_size=1, gamma=cfg.get("schedule_ratio", 0.9))
+        # 2026-10-25: BatchNorm/fp16 진단(cfg["bn_diag"]). 읽기 전용 hook 이라 학습 동작은 바뀌지 않는다.
+        _diag = None
+        if cfg.get("bn_diag", False):
+            try:
+                from adapters.bn_diag import BNDiag
+            except ImportError:
+                from .bn_diag import BNDiag
+            _diag = BNDiag(model, cfg, scaler)
 
         best_val_acc, best_epoch, best_state = -1.0, None, None
         # 2026-10-14: scFoundation encoder의 nn.TransformerEncoderLayer는 dropout 기본값 0.1이 켜져 있다
@@ -441,14 +449,21 @@ class ScFoundationAdapter(ModelAdapter):
                 if (step + 1) % accum_steps == 0 or is_last:
                     scaler.unscale_(optimizer)
                     nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    _sc0 = scaler.get_scale() if _diag is not None else None
                     scaler.step(optimizer)
                     scaler.update()
+                    if _diag is not None:
+                        _diag.after_step(scaler, _sc0)
                     optimizer.zero_grad()
 
                 total_loss += loss.item() * accum_steps
+                if _diag is not None:
+                    _diag.after_loss(loss.item() * accum_steps)
                 correct += (logits.argmax(1) == labels).sum().item()
                 total += len(labels)
             scheduler.step()
+            if _diag is not None:
+                _diag.end_epoch(epoch, total_loss / max(len(train_loader), 1))
 
             model.eval()
             val_correct = val_total = 0
@@ -486,6 +501,42 @@ class ScFoundationAdapter(ModelAdapter):
                     _t += len(labels)
             model._eval_train_acc = _c / max(_t, 1)
             logger.info(f"  [진단] eval 모드 train_acc={model._eval_train_acc:.4f} (n={_t})")
+        if _diag is not None:
+            _diag.finish(train_loader, _enc_eval, _n_unfrozen, amp, autocast_dtype, device)
+        if cfg.get("bn_recalibrate", False):
+            # 2026-10-25: 학습 중 BatchNorm running 통계는 dropout 켠(train 모드) 특징으로 쌓이는데 평가는 dropout 끈 특징을 쓴다.
+            # (bn_diag 결과: N=all lr 3e-4 에서 z 평균 4~9 로 어긋나고, eval 특징으로 통계를 다시 계산하면 train 정확도가 회복됨)
+            # 학습 세포(라벨 미사용, query 미사용)를 eval 모드 fp32 로 한 번 통과시켜 running 통계만 다시 계산한다.
+            _bn = getattr(model, "norm", None)
+            if isinstance(_bn, nn.BatchNorm1d):
+                model._bn_state_orig = copy.deepcopy(_bn.state_dict())
+                _old_mom = _bn.momentum
+                _old_rm = _bn.running_mean.detach().double().cpu().clone()
+                _old_rv = _bn.running_var.detach().double().cpu().clone()
+                _bn.reset_running_stats()
+                _bn.momentum = None          # 누적 평균
+                model.eval()
+                _bn.train()                  # BatchNorm 만 배치 통계로 갱신, 나머지는 eval(dropout 끔)
+                with torch.no_grad():
+                    for batch in train_loader:
+                        model(batch["x"].to(device))
+                _bn.eval()
+                _bn.momentum = _old_mom
+                model._bn_state_recal = copy.deepcopy(_bn.state_dict())
+                _dz = (_bn.running_mean.detach().double().cpu() - _old_rm).abs() / torch.sqrt(_old_rv.clamp_min(0) + _bn.eps)
+                model.eval()
+                _c = _t = 0
+                with torch.no_grad():
+                    for batch in train_loader:
+                        logits = model(batch["x"].to(device))
+                        _c += (logits.argmax(1) == batch["celltype_labels"].to(device)).sum().item()
+                        _t += len(batch["celltype_labels"])
+                model._eval_train_acc_recal = _c / max(_t, 1)
+                logger.info(f"  [BNRECAL] BatchNorm running 통계 재계산 완료 (학습 세포 {_t}개, 라벨/query 미사용): "
+                            f"평균 이동 z 평균={float(_dz.mean()):.3g} 최대={float(_dz.max()):.3g}, "
+                            f"eval 모드 train_acc 원래={getattr(model, '_eval_train_acc', float('nan')):.4f} -> 재계산={model._eval_train_acc_recal:.4f}")
+            else:
+                logger.warning("[BNRECAL] model.norm 이 BatchNorm1d 가 아니라 재계산을 건너뜁니다.")
         return model
 
     # ------------------------------------------------------------------
@@ -516,6 +567,25 @@ class ScFoundationAdapter(ModelAdapter):
                 probs = torch.softmax(logits, dim=1)
                 all_preds.extend([id2type[i] for i in probs.argmax(1).cpu().numpy()])
                 all_scores.extend(probs.max(1).values.cpu().numpy().tolist())
+
+        _orig_bn = getattr(model, "_bn_state_orig", None)
+        if _orig_bn is not None:
+            # bn_recalibrate 비교용: 원래(dropout 켠 학습으로 쌓인) BatchNorm 통계로도 같은 query 를 예측해 둔다.
+            import copy as _copy
+            _bn = model.norm
+            _cur = _copy.deepcopy(_bn.state_dict())
+            _alt = []
+            try:
+                _bn.load_state_dict(_orig_bn)
+                model.eval()
+                with torch.no_grad():
+                    for x in loader:
+                        _lg = model(x.to(device))
+                        _alt.extend([id2type[i] for i in _lg.argmax(1).cpu().numpy()])
+            finally:
+                _bn.load_state_dict(_cur)
+                model.eval()
+            adata_test.obs["predictions_orig"] = _alt
 
         adata_test.obs["predictions"] = all_preds
         adata_test.obs["pred_score"] = all_scores
