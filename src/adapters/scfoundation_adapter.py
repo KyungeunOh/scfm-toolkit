@@ -315,6 +315,7 @@ class ScFoundationAdapter(ModelAdapter):
         X_ref = X_full[ref_mask]
         y_ref = adata.obs.loc[ref_mask, "celltype_id"].to_numpy()
 
+        _holdout = None
         n_per_type = cfg.get("train_n_per_type")
         if n_per_type:
             # 2026-10-08 (교수님 요청): reference에서 type별 최대 N개만 학습에 사용.
@@ -324,6 +325,17 @@ class ScFoundationAdapter(ModelAdapter):
             sel = stratified_subsample_indices(y_ref, int(n_per_type), cfg.get("seed", 42))
             X_train, y_train = X_ref[sel], y_ref[sel]
             X_valid, y_valid = None, None
+            if cfg.get("holdout_n"):
+                # 2026-10-25: lr 비교용 holdout. 학습에 쓰지 않은 reference 세포 중 seed 별로 고정된 최대 holdout_n 개.
+                # N=10/50 이 같은 holdout 을 쓰도록 N=holdout_exclude_n(기본 50) subsample 도 함께 제외한다.
+                # 독립 RandomState 만 쓰므로 학습 subsample, torch/numpy 전역 RNG 에 영향이 없다. query 는 쓰지 않는다.
+                _excl = np.union1d(sel, stratified_subsample_indices(y_ref, int(cfg.get("holdout_exclude_n", 50)), cfg.get("seed", 42)))
+                _rest = np.setdiff1d(np.arange(len(y_ref)), _excl)
+                _perm = np.random.RandomState([int(cfg.get("seed", 42)), 777]).permutation(len(_rest))
+                _hsel = np.sort(_rest[_perm[: int(cfg["holdout_n"])]])
+                if len(_hsel) > 0:
+                    _holdout = (torch.from_numpy(X_ref[_hsel]), y_ref[_hsel])
+                logger.info(f"holdout: 학습에 쓰지 않은 reference {len(_hsel)}개 (type {len(np.unique(y_ref[_hsel]))}종, query 미사용)")
         else:
             X_train, X_valid, y_train, y_valid = train_test_split(
                 X_ref, y_ref, test_size=1.0 - cfg.get("train_ratio", 0.9),
@@ -344,7 +356,8 @@ class ScFoundationAdapter(ModelAdapter):
                     f"(19264-유전자 dense 텐서)")
         _u, _c = np.unique(y_train, return_counts=True)
         return {"train_loader": train_loader, "valid_loader": valid_loader,
-                "train_label_counts": {int(k): int(v) for k, v in zip(_u, _c)}}
+                "train_label_counts": {int(k): int(v) for k, v in zip(_u, _c)},
+                "holdout": _holdout}
 
     # ------------------------------------------------------------------
     def load_model(self, cfg: Dict[str, Any], num_types: int, device, vocab=None, model_configs=None):
@@ -586,6 +599,37 @@ class ScFoundationAdapter(ModelAdapter):
                 _bn.load_state_dict(_cur)
                 model.eval()
             adata_test.obs["predictions_orig"] = _alt
+
+        _ho = prepared_inputs.get("holdout") if isinstance(prepared_inputs, dict) else None
+        if _ho is not None:
+            # lr 비교용 holdout(학습에 쓰지 않은 reference 세포) 평가: 활성 BN 통계 기준, bn_recalibrate 였다면 원래 통계 기준도 같이.
+            import copy as _copy2
+            from sklearn.metrics import f1_score as _hf1
+            _Xh, _yh = _ho
+
+            def _hpred():
+                model.eval()
+                _o = []
+                with torch.no_grad():
+                    for _i in range(0, len(_Xh), eval_batch_size):
+                        _o.append(model(_Xh[_i:_i + eval_batch_size].to(device)).argmax(1).cpu())
+                return torch.cat(_o).numpy()
+
+            _hp = _hpred()
+            _hres = {"n": int(len(_yh)), "types": int(len(np.unique(_yh))),
+                     "f1": float(_hf1(_yh, _hp, average="macro", zero_division=0)), "acc": float((_hp == _yh).mean())}
+            if _orig_bn is not None:
+                _bn2 = model.norm
+                _cur2 = _copy2.deepcopy(_bn2.state_dict())
+                try:
+                    _bn2.load_state_dict(_orig_bn)
+                    _hpo = _hpred()
+                finally:
+                    _bn2.load_state_dict(_cur2)
+                    model.eval()
+                _hres["orig_f1"] = float(_hf1(_yh, _hpo, average="macro", zero_division=0))
+                _hres["orig_acc"] = float((_hpo == _yh).mean())
+            adata_test.uns["holdout"] = _hres
 
         adata_test.obs["predictions"] = all_preds
         adata_test.obs["pred_score"] = all_scores

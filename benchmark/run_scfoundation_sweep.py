@@ -177,6 +177,17 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
                 print(f"  [BNRECAL] query macro_f1 원래 통계={_f1o} / 재계산 통계={macro_f1}   accuracy {_acco} / {accuracy}", flush=True)
             except Exception as _e:
                 row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) + f" | bn_orig 평가 실패: {_e}").strip(" |")
+        _hoo = getattr(adata_result, "uns", {}).get("holdout") if hasattr(adata_result, "uns") else None
+        if _hoo:
+            # lr 비교용 holdout(학습에 쓰지 않은 reference 세포): f1/acc 는 macro_f1/accuracy 열과 같은 BN 통계 기준
+            try:
+                _hs = f" | holdout n={_hoo['n']} types={_hoo['types']} f1={_hoo['f1']:.4f} acc={_hoo['acc']:.4f}"
+                if "orig_f1" in _hoo:
+                    _hs += f" 원래통계 f1={_hoo['orig_f1']:.4f} acc={_hoo['orig_acc']:.4f}"
+                row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) + _hs).strip(" |")
+                print("  [HOLDOUT]" + _hs.replace(" | holdout", ""), flush=True)
+            except Exception as _e:
+                row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) + f" | holdout 기록 실패: {_e}").strip(" |")
     except Exception as e:
         row_kwargs["notes"] = (row_kwargs.get("notes", "") + f" | predict/f1 계산 실패: {e}").strip(" |")
 
@@ -302,6 +313,22 @@ _GRID_FUNCS = {
     "subsample_n50_lr1e4": grid_mod.scfoundation_subsample_n50_lr1e4_grid,
     "bn_diag": grid_mod.scfoundation_bn_diag_grid,
     "bn_recal": grid_mod.scfoundation_bn_recal_grid,
+    "lr_n50": grid_mod.scfoundation_lr_n50_grid,
+    "lr_n10": grid_mod.scfoundation_lr_n10_grid,
+    "pancreas_smoke": grid_mod.scfoundation_pancreas_smoke_grid,
+    "pancreas_rule": grid_mod.scfoundation_pancreas_rule_grid,
+    "pancreas_rule_full": grid_mod.scfoundation_pancreas_rule_full_grid,
+    "lr_last2_hi": grid_mod.scfoundation_last2_hi_grid,
+    "lr_last2_hi3": grid_mod.scfoundation_last2_hi3_grid,
+    "seed_repeat": grid_mod.scfoundation_seed_repeat_grid,
+    "lr_last2_anchor": grid_mod.scfoundation_last2_anchor_grid,
+    "pancreas_last2_3e4": grid_mod.scfoundation_pancreas_last2_3e4_grid,
+    "seed_repeat_dropout": grid_mod.scfoundation_seed_repeat_dropout_grid,
+    "pancreas_lr_rest": grid_mod.scfoundation_pancreas_lr_rest_grid,
+    "pancreas_lr_edge": grid_mod.scfoundation_pancreas_lr_edge_grid,
+    "lr_all_s42": grid_mod.scfoundation_lr_all_s42_grid,
+    "lr_all_s43": grid_mod.scfoundation_lr_all_s43_grid,
+    "lr_all_s44": grid_mod.scfoundation_lr_all_s44_grid,
 }
 # 2026-09-22 추가: scGPT의 run_scgpt_sweep.py와 같은 패턴(_GRID_FUNCS 딕셔너리)으로
 # --grid 선택지를 확장 - gene_length_grid로 gene-count 단독 효과를 본다.

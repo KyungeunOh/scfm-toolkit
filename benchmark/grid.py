@@ -559,3 +559,217 @@ def scfoundation_bn_recal_grid(seeds=(42,), epochs=10):
             c = [c for c in base if c["seed"] == s and c["scfoundation_unfrozen_layers"] == u and c.get("scfoundation_encoder_eval")][0]
             out.append(dict(c, lr=lr, bn_recalibrate=True))
     return out
+
+
+# ---------------------------------------------------------------------------
+# 교수님 2026-10-18 요청 1번: scope 별 lr 변화 (N=10/50). 2026-10-25 BN 재계산 평가 도입 이후 설계.
+# ---------------------------------------------------------------------------
+def scfoundation_lr_grid(ns, seeds=(42, 43, 44, 45, 46), epochs=10, holdout_n=2000):
+    """scope 별 lr 격자. 조건은 본 실험(main grid)과 같은 프로토콜(frozen 구간 eval, batch 8, seed_torch, 마지막 epoch).
+    학습 block 이 있는 scope(last2/last4/full)는 bn_recalibrate=True (원래/재계산 평가를 한 번에 기록),
+    freeze 는 encoder 전체가 eval 이라 BN 통계가 일치하므로 끈다. 모든 run 에 holdout 평가(학습에 쓰지 않은 reference 최대 holdout_n 개).
+    각 scope 의 lr: (새 격자점 + 재계산 평가를 위한 기존 격자점 재실행)
+      freeze : 3e-4, 1e-3, 1e-2  (3e-3 은 기존)
+      last2/last4 : 3e-5 (모든 N), 1e-4 (N=10 만 새로, N=50 은 기존 재실행), 3e-4 (기존 재실행)
+      full   : 3e-5, 3e-4 (새로), 1e-4 (기존 재실행)
+    같은 (N, seed)는 조건과 무관하게 같은 학습 subsample, 같은 holdout."""
+    base = [c for c in scfoundation_scope_repeat_grid() if c.get("scfoundation_unfrozen_layers") == 2][0]
+    specs = (
+        # (unfrozen_layers, frozen_embeddings, encoder_eval, bn_recalibrate, lrs)
+        (0, True, True, False, (3e-4, 1e-3, 1e-2)),
+        (2, True, True, True, (3e-5, 1e-4, 3e-4)),
+        (4, True, True, True, (3e-5, 1e-4, 3e-4)),
+        (12, False, False, True, (3e-5, 1e-4, 3e-4)),
+    )
+    out = []
+    for s in seeds:
+        for n in ns:
+            for u, fe, ev, recal, lrs in specs:
+                for lr in lrs:
+                    c = dict(base, micro_batch_size=8, grad_accum_steps=1, epochs=epochs,
+                             scfoundation_unfrozen_layers=u, scfoundation_frozen_embeddings=fe,
+                             train_n_per_type=n, seed=s, seed_torch=True, lr=lr,
+                             holdout_n=holdout_n, holdout_exclude_n=50)
+                    if ev:
+                        c["scfoundation_encoder_eval"] = True
+                    if recal:
+                        c["bn_recalibrate"] = True
+                    out.append(c)
+    return out
+
+
+def scfoundation_lr_n50_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """N=50 lr sweep: 5 seed x (freeze 3 + last2 3 + last4 3 + full 3) = 60회."""
+    return scfoundation_lr_grid(ns=(50,), seeds=seeds, epochs=epochs)
+
+
+def scfoundation_lr_n10_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """N=10 lr sweep: 5 seed x 12 = 60회."""
+    return scfoundation_lr_grid(ns=(10,), seeds=seeds, epochs=epochs)
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-27: Pancreas 확인, 2-block lr 확장, 같은 seed 반복(요청 3번) 통제 실험.
+# 모두 scfoundation_lr_grid 에서 조건만 골라 쓰므로 프로토콜은 lr sweep 과 같다.
+# ---------------------------------------------------------------------------
+_PANCREAS_RULE_LR = {0: 1e-3, 2: 1e-4, 4: 1e-4, 12: 1e-4}   # brain atlas lr sweep 에서 정한 사전 규칙(같은 sweep 에서 만든 것이라 낙관적)
+
+
+def _pick_lr_runs(us, ns, seeds, epochs):
+    out = []
+    for c in scfoundation_lr_grid(ns=ns, seeds=seeds, epochs=epochs):
+        u = c["scfoundation_unfrozen_layers"]
+        if u in us and c["lr"] == _PANCREAS_RULE_LR[u]:
+            out.append(c)
+    return out
+
+
+def scfoundation_pancreas_smoke_grid(epochs=10):
+    """Pancreas 경로/시간/메모리 확인용 2회: N=50, seed 42, freeze lr 1e-3 + 2-block lr 1e-4."""
+    out = []
+    for c in scfoundation_lr_grid(ns=(50,), seeds=(42,), epochs=epochs):
+        u, lr = c["scfoundation_unfrozen_layers"], c["lr"]
+        if (u == 0 and lr == 1e-3) or (u == 2 and lr == 1e-4):
+            out.append(c)
+    return out
+
+
+def scfoundation_pancreas_rule_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """사전 규칙 검증: freeze(1e-3), 2-block(1e-4), 4-block(1e-4) x N=10,50 x 5 seed = 30회."""
+    return _pick_lr_runs((0, 2, 4), (10, 50), seeds, epochs)
+
+
+def scfoundation_pancreas_rule_full_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """사전 규칙 검증 full scope(1e-4) x N=10,50 x 5 seed = 10회. brain atlas 에서 N=50 full 이 약 23.7GB 라 GPU 가 비어 있을 때만."""
+    return _pick_lr_runs((12,), (10, 50), seeds, epochs)
+
+
+def _last2_lr_variants(lrs, ns, seeds, epochs):
+    out = []
+    for c in scfoundation_lr_grid(ns=ns, seeds=seeds, epochs=epochs):
+        if c["scfoundation_unfrozen_layers"] == 2 and c["lr"] == 3e-4:
+            for lr in lrs:
+                out.append(dict(c, lr=lr))
+    return out
+
+
+def scfoundation_last2_hi_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """brain atlas 2-block lr 1e-3: N=10,50 x 5 seed = 10회 (lr sweep 의 최고점이 3e-4 격자 끝이라 위쪽 확인)."""
+    return _last2_lr_variants((1e-3,), (10, 50), seeds, epochs)
+
+
+def scfoundation_last2_hi3_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """brain atlas 2-block lr 3e-3: 10회 (1e-3 결과를 본 뒤 필요할 때)."""
+    return _last2_lr_variants((3e-3,), (10, 50), seeds, epochs)
+
+
+def scfoundation_seed_repeat_grid(repeats=3, epochs=10):
+    """교수님 요청 3번 통제 실험: 같은 설정(2-block lr 1e-4, N=50, seed 42)을 seed_torch True 로 repeats 회, False 로 repeats 회."""
+    base = [c for c in scfoundation_lr_grid(ns=(50,), seeds=(42,), epochs=epochs)
+            if c["scfoundation_unfrozen_layers"] == 2 and c["lr"] == 1e-4][0]
+    out = []
+    for st in (True, False):
+        for _ in range(repeats):
+            out.append(dict(base, seed_torch=st))
+    return out
+
+
+def scfoundation_last2_anchor_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """brain atlas 2-block lr 3e-4 재실행(기준점): lr_last2_hi(1e-3)와 같은 GPU 에서 비교하기 위해 N=10,50 x 5 seed = 10회.
+    설정은 lr sweep 의 2-block 3e-4 와 동일(같은 subsample, holdout, seed_torch). 기존 결과는 RTX 3090, 이 grid 는 실행한 GPU 에서 새로 얻는다."""
+    return _last2_lr_variants((3e-4,), (10, 50), seeds, epochs)
+
+
+def scfoundation_pancreas_last2_3e4_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """Pancreas 민감도 확인: 2-block lr 3e-4 x N=10,50 x 5 seed = 10회. pancreas_rule 의 2-block(1e-4)이 brain atlas 최고 lr(3e-4)보다
+    낮았던 점이 N=10 결과에 영향을 주었는지 보기 위한 것. 새 최적 lr 탐색이 아니다(다른 scope 는 이 lr 로 다시 돌리지 않음)."""
+    out = []
+    for c in scfoundation_lr_grid(ns=(10, 50), seeds=seeds, epochs=epochs):
+        if c["scfoundation_unfrozen_layers"] == 2 and c["lr"] == 3e-4:
+            out.append(c)
+    return out
+
+
+def scfoundation_seed_repeat_dropout_grid(epochs=10):
+    """교수님 요청 3번 보강(고정 block eval 모드 단독 효과): brain atlas 2-block lr 1e-4, N=50, seed 42, 난수 고정 없음(seed_torch=False).
+    eval 모드 켬 2회(기존 seed_repeat 의 3회와 합쳐 5회) + eval 모드 끔(frozen 구간도 dropout 켬, 10/6~10/14 기존 방식) 5회 = 7회.
+    앞 2개가 eval 켬, 뒤 5개가 eval 끔. 구분은 CSV 의 finetune_method(EncEval 포함 여부)로 한다."""
+    base = [c for c in scfoundation_lr_grid(ns=(50,), seeds=(42,), epochs=epochs)
+            if c["scfoundation_unfrozen_layers"] == 2 and c["lr"] == 1e-4][0]
+    out = [dict(base, seed_torch=False) for _ in range(2)]
+    out += [dict(base, seed_torch=False, scfoundation_encoder_eval=False) for _ in range(5)]
+    return out
+
+
+_PANCREAS_LR_DONE = {(0, 1e-3), (2, 1e-4), (2, 3e-4), (4, 1e-4), (12, 1e-4)}   # pancreas_rule, pancreas_rule_full, pancreas_last2_3e4 로 이미 돌린 (scope, lr)
+
+
+def scfoundation_pancreas_lr_rest_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """Pancreas 자체 lr 격자의 나머지: brain atlas lr sweep 과 같은 격자(freeze 3e-4/1e-3/1e-2, 2/4-block/full 3e-5/1e-4/3e-4)
+    x N=10,50 x 5 seed = 120회 중 이미 돌린 5개 (scope, lr) 조합(50회)을 뺀 70회."""
+    return [c for c in scfoundation_lr_grid(ns=(10, 50), seeds=seeds, epochs=epochs)
+            if (c["scfoundation_unfrozen_layers"], c["lr"]) not in _PANCREAS_LR_DONE]
+
+
+_PANCREAS_LR_EDGE = (
+    # (N, unfrozen_layers, 새 lr): Pancreas lr 격자(120회)에서 평균 C 최고 lr 이 격자 끝에 걸린 설정을 바깥쪽으로 확장한다.
+    (10, 2, (1e-3,)), (10, 4, (1e-3,)), (10, 12, (1e-3,)),   # N=10: 최고 3e-4 (격자 위쪽 끝)
+    (50, 0, (1e-4, 3e-5)),                                    # N=50 freeze: 최고 3e-4 (아래쪽 끝)
+    (50, 12, (1e-5,)),                                        # N=50 full: 최고 3e-5 (아래쪽 끝)
+)
+
+
+def scfoundation_pancreas_lr_edge_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """Pancreas lr 격자 가장자리 확장: _PANCREAS_LR_EDGE 의 (N, scope, lr) x 5 seed = 30회.
+    같은 (N, scope, seed)의 scfoundation_lr_grid 설정을 복사하고 lr 만 바꾼다
+    (같은 (N, seed)는 같은 학습 subsample, frozen eval, BN 재계산, holdout 유지)."""
+    base = scfoundation_lr_grid(ns=(10, 50), seeds=seeds, epochs=epochs)
+    existing = {(c["train_n_per_type"], c["scfoundation_unfrozen_layers"], c["lr"]) for c in base}
+    out = []
+    for s in seeds:
+        for n, u, lrs in _PANCREAS_LR_EDGE:
+            tmpl = [c for c in base if c["train_n_per_type"] == n
+                    and c["scfoundation_unfrozen_layers"] == u and c["seed"] == s][0]
+            for lr in lrs:
+                assert (n, u, lr) not in existing, (n, u, lr)   # 이미 돌린 조합이 섞이지 않게
+                out.append(dict(tmpl, lr=lr))
+    return out
+
+
+_LR_ALL_SPECS = (
+    # (unfrozen_layers, lrs): N=10/50 lr sweep(scfoundation_lr_grid)과 같은 격자
+    (0, (3e-4, 1e-3, 1e-2)),
+    (2, (3e-5, 1e-4, 3e-4)),
+    (4, (3e-5, 1e-4, 3e-4)),
+    (12, (3e-5, 1e-4, 3e-4)),
+)
+
+
+def scfoundation_lr_all_grid(seeds=(42, 43, 44), epochs=10):
+    """N=전체(reference 7,844개 전부, validation 없음, 마지막 epoch) lr 격자 (교수님 2026-11-01 우선 실험 1번).
+    scfoundation_subsample_all_grid 의 scope 별 설정에 lr 을 덮어쓰고, 학습 block 이 있는 scope 는 bn_recalibrate=True
+    (원래/재계산 평가를 한 번에 기록). freeze 는 encoder 전체가 eval 이라 재계산을 끈다. 12조합 x seed 수."""
+    base = scfoundation_subsample_all_grid(seeds=seeds, epochs=epochs)
+    out = []
+    for s in seeds:
+        for u, lrs in _LR_ALL_SPECS:
+            cs = [c for c in base if c["seed"] == s and c["scfoundation_unfrozen_layers"] == u]
+            assert len(cs) == 1, (s, u, len(cs))
+            for lr in lrs:
+                c = dict(cs[0], lr=lr)
+                if u > 0:
+                    c["bn_recalibrate"] = True
+                out.append(c)
+    return out
+
+
+def scfoundation_lr_all_s42_grid(epochs=10):
+    return scfoundation_lr_all_grid(seeds=(42,), epochs=epochs)
+
+
+def scfoundation_lr_all_s43_grid(epochs=10):
+    return scfoundation_lr_all_grid(seeds=(43,), epochs=epochs)
+
+
+def scfoundation_lr_all_s44_grid(epochs=10):
+    return scfoundation_lr_all_grid(seeds=(44,), epochs=epochs)
