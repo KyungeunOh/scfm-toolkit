@@ -65,6 +65,40 @@ def _add_scfoundation_repo_to_path(repo_dir: str) -> None:
         sys.path.insert(0, model_dir)
 
 
+def _enable_encoder_checkpointing(enc):
+    """scFoundation encoder(pretrainmodels/transformer.py 의 pytorchTransformerModule: nn.TransformerEncoderLayer 의
+    ModuleList)의 각 층 forward 를 torch.utils.checkpoint(non-reentrant)로 감싸 activation 메모리를 줄인다.
+    수식은 그대로다(dropout RNG 상태는 checkpoint 가 저장/복원). 구조가 예상과 다르면 False 를 돌려준다.
+    학습 모드 + grad 켜짐일 때만 동작하고, 그 외(평가, BN 재계산, predict)에는 원래 forward 를 그대로 쓴다."""
+    import torch
+    import torch.nn as nn
+    from torch.utils.checkpoint import checkpoint
+    if getattr(enc, "_ckpt_enabled", False):
+        return True
+    layers = getattr(enc, "transformer_encoder", None)
+    if (type(enc).__name__ != "pytorchTransformerModule" or not isinstance(layers, nn.ModuleList)
+            or len(layers) == 0 or not all(isinstance(m, nn.TransformerEncoderLayer) for m in layers)
+            or not hasattr(enc, "norm") or not hasattr(enc, "max_seq_len")):
+        return False
+    orig_forward = enc.forward
+
+    def forward(x, padding_mask):
+        if not (enc.training and torch.is_grad_enabled()):
+            return orig_forward(x, padding_mask)
+        assert x.shape[1] <= enc.max_seq_len, (
+            f"sequence length {x.shape[1]} must be less than the max sequence length {enc.max_seq_len}")
+        for mod in layers:
+            if x.requires_grad or any(p.requires_grad for p in mod.parameters()):
+                x = checkpoint(mod, x, src_key_padding_mask=padding_mask, use_reentrant=False)
+            else:
+                x = mod(x, src_key_padding_mask=padding_mask)
+        return enc.norm(x)
+
+    enc.forward = forward
+    enc._ckpt_enabled = True
+    return True
+
+
 class ScFoundationClassifier(nn.Module):
     """
     공식 finetune_model.py의 LinearProbingClassifier를 이 프로젝트의 num_types
@@ -407,12 +441,11 @@ class ScFoundationAdapter(ModelAdapter):
         scaler = torch.cuda.amp.GradScaler(enabled=(amp and autocast_dtype == torch.float16))
 
         if cfg.get("activation_checkpointing", False):
-            logger.warning(
-                "scfoundation_adapter는 activation_checkpointing을 아직 지원하지 않습니다 "
-                "(scGPT와 달리 encoder 내부 구조(performer/flash 등 select_model() 선택에 따라 "
-                "달라짐)가 확인되지 않아 안전하게 wrapping할 방법을 아직 검증 못함 - README "
-                "'남은 작업' 참고). 이 옵션은 무시하고 계속 진행합니다."
-            )
+            if not _enable_encoder_checkpointing(model.encoder):
+                raise RuntimeError(
+                    "activation_checkpointing=True 인데 encoder 구조가 예상(pretrainmodels/transformer.py "
+                    "pytorchTransformerModule)과 달라 적용할 수 없습니다. 조용히 무시하면 메모리 보장이 깨지므로 중단합니다.")
+            logger.info("[CKPT] encoder 각 층에 activation checkpointing(non-reentrant) 적용")
 
         criterion = nn.CrossEntropyLoss()
         optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
