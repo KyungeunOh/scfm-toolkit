@@ -826,6 +826,39 @@ def scfoundation_ckpt_check_grid(seeds=(42,), epochs=10):
     return out
 
 
+def scfoundation_ckpt_check_24gb_grid():
+    """3090(24GB)에서 ckpt 8x1 seed 42: fit_real24 (같은 GPU, 비ckpt)와 동등성 비교 (2026-11-04)."""
+    return scfoundation_ckpt_check_grid(seeds=(42,))
+
+
+def scfoundation_ckpt_more_11gb_grid():
+    """2080 Ti(11GB)에서 ckpt 8x1 seed 43, 44 (CSV 분리용 alias, 2026-11-04)."""
+    return scfoundation_ckpt_more_grid()
+
+
+def scfoundation_ckpt_scope_grid(seeds=(42, 43, 44), epochs=10):
+    """일부 block만 학습하는 scope(2-block, 4-block, lr 3e-5)의 activation checkpointing 동등성.
+    lr_all_s42/43/44 의 같은 (seed, scope, lr) 설정에 activation_checkpointing=True 만 추가 (A6000 기준 비교용)."""
+    base = scfoundation_lr_all_grid(seeds=seeds, epochs=epochs)
+    out = []
+    for c in base:
+        if c["scfoundation_unfrozen_layers"] in (2, 4) and c["lr"] == 3e-5:
+            out.append(dict(c, activation_checkpointing=True))
+    assert len(out) == 2 * len(seeds), len(out)
+    return out
+
+
+def scfoundation_lr_all_lower_grid(seeds=(42, 43, 44), epochs=10):
+    """Brain N=전체 full: lr 3e-6 (lr_all_low 1e-5 보다 한 칸 더 아래, 2026-11-04), bn_recalibrate 켬."""
+    base = scfoundation_subsample_all_grid(seeds=seeds, epochs=epochs)
+    out = []
+    for s in seeds:
+        cs = [c for c in base if c["seed"] == s and c["scfoundation_unfrozen_layers"] == 12]
+        assert len(cs) == 1, (s, len(cs))
+        out.append(dict(cs[0], lr=3e-6, bn_recalibrate=True))
+    return out
+
+
 def scfoundation_ckpt_more_grid(epochs=10):
     """ckpt_check(seed 42) 통과 후 seed 43, 44 추가."""
     return scfoundation_ckpt_check_grid(seeds=(43, 44), epochs=epochs)

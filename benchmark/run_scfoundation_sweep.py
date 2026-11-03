@@ -336,6 +336,10 @@ _GRID_FUNCS = {
     "ckpt_check": grid_mod.scfoundation_ckpt_check_grid,
     "ckpt_more": grid_mod.scfoundation_ckpt_more_grid,
     "ckpt_check_11gb": grid_mod.scfoundation_ckpt_check_grid,
+    "ckpt_check_24gb": grid_mod.scfoundation_ckpt_check_24gb_grid,
+    "ckpt_more_11gb": grid_mod.scfoundation_ckpt_more_11gb_grid,
+    "ckpt_scope": grid_mod.scfoundation_ckpt_scope_grid,
+    "lr_all_lower": grid_mod.scfoundation_lr_all_lower_grid,
 }
 # 2026-09-22 추가: scGPT의 run_scgpt_sweep.py와 같은 패턴(_GRID_FUNCS 딕셔너리)으로
 # --grid 선택지를 확장 - gene_length_grid로 gene-count 단독 효과를 본다.
