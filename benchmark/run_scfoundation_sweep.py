@@ -99,8 +99,7 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
         grad_accum_steps=override.get("grad_accum_steps", cfg.get("grad_accum_steps", 1)),
         effective_batch_size=grid_mod.effective_batch_size(override),
         activation_checkpointing=override.get("activation_checkpointing", False),
-        notes=("activation_checkpointing=True가 요청됐지만 scfoundation_adapter는 아직 미지원 "
-               "(finetune()이 경고 후 무시함)" if override.get("activation_checkpointing") else ""),
+        notes=("activation_checkpointing=True: encoder 각 층 torch.utils.checkpoint(non-reentrant) 적용" if override.get("activation_checkpointing") else ""),
         lr=override.get("lr", cfg.get("lr", 0.0001)),
         seed=cfg.get("seed", 42),
         **blog.base_environment_fields(),
@@ -329,6 +328,14 @@ _GRID_FUNCS = {
     "lr_all_s42": grid_mod.scfoundation_lr_all_s42_grid,
     "lr_all_s43": grid_mod.scfoundation_lr_all_s43_grid,
     "lr_all_s44": grid_mod.scfoundation_lr_all_s44_grid,
+    "lr_all_low": grid_mod.scfoundation_lr_all_low_grid,
+    "fit_real24": grid_mod.scfoundation_fit_real24_grid,
+    "fit_real11": grid_mod.scfoundation_fit_real11_grid,
+    "bn_recal_rerun": grid_mod.scfoundation_bn_recal_rerun_grid,
+    "micro_effect": grid_mod.scfoundation_micro_effect_grid,
+    "ckpt_check": grid_mod.scfoundation_ckpt_check_grid,
+    "ckpt_more": grid_mod.scfoundation_ckpt_more_grid,
+    "ckpt_check_11gb": grid_mod.scfoundation_ckpt_check_grid,
 }
 # 2026-09-22 추가: scGPT의 run_scgpt_sweep.py와 같은 패턴(_GRID_FUNCS 딕셔너리)으로
 # --grid 선택지를 확장 - gene_length_grid로 gene-count 단독 효과를 본다.

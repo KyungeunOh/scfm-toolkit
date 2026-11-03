@@ -773,3 +773,59 @@ def scfoundation_lr_all_s43_grid(epochs=10):
 
 def scfoundation_lr_all_s44_grid(epochs=10):
     return scfoundation_lr_all_grid(seeds=(44,), epochs=epochs)
+
+
+def scfoundation_lr_all_low_grid(seeds=(42, 43, 44), epochs=10):
+    """Brain N=전체 full 의 격자 끝(3e-5) 바깥 확인 (2026-11-03): lr 1e-5, bn_recalibrate 켬."""
+    base = scfoundation_subsample_all_grid(seeds=seeds, epochs=epochs)
+    out = []
+    for s in seeds:
+        cs = [c for c in base if c["seed"] == s and c["scfoundation_unfrozen_layers"] == 12]
+        assert len(cs) == 1, (s, len(cs))
+        out.append(dict(cs[0], lr=1e-5, bn_recalibrate=True))
+    return out
+
+
+def _fit_full_nall(shapes, seed=42, epochs=10):
+    base = scfoundation_subsample_all_grid(seeds=(seed,), epochs=epochs)
+    cs = [c for c in base if c["scfoundation_unfrozen_layers"] == 12]
+    assert len(cs) == 1, len(cs)
+    return [dict(cs[0], lr=3e-5, bn_recalibrate=True, micro_batch_size=mb, grad_accum_steps=ga) for mb, ga in shapes]
+
+
+def scfoundation_fit_real24_grid(epochs=10):
+    """실제 24GB 카드(RTX 3090)에서 full N=전체 lr 3e-5 가 기본 micro-batch 8 로 완주하는지 (2026-11-03)."""
+    return _fit_full_nall(((8, 1),), epochs=epochs)
+
+
+def scfoundation_fit_real11_grid(epochs=10):
+    """실제 11GB 카드(RTX 2080 Ti)에서 full N=전체 lr 3e-5: effective batch 8 유지, micro-batch 4x2, 2x4 (2026-11-03)."""
+    return _fit_full_nall(((4, 2), (2, 4)), epochs=epochs)
+
+
+def scfoundation_bn_recal_rerun_grid(seeds=(42,), epochs=10):
+    """10/25 bn_recal 과 같은 3개 설정을 별도 CSV 로 다시 (GPU 가설 확인, 2026-11-03)."""
+    return scfoundation_bn_recal_grid(seeds=seeds, epochs=epochs)
+
+
+def scfoundation_micro_effect_grid(seeds=(42, 43, 44), epochs=10):
+    """full N=전체 lr 3e-5, effective batch 8 고정, micro-batch 4x2 / 2x4 만 바꿔 같은 GPU(A6000)에서 반복 (2026-11-03).
+    8x1 기준은 lr_all_s42/43/44 에 이미 있음. seed 우선 순서(중간에 끊겨도 seed 단위로 쌍 비교 가능)."""
+    out = []
+    for s in seeds:
+        out += _fit_full_nall(((4, 2), (2, 4)), seed=s, epochs=epochs)
+    return out
+
+
+def scfoundation_ckpt_check_grid(seeds=(42,), epochs=10):
+    """activation checkpointing 을 켠 full N=전체 lr 3e-5, micro 8x1(기본 batch). 같은 GPU 의 lr_all_s4x 결과와 비교해
+    수치 동등성, 메모리(peak_allocated), 시간을 확인한다. 11GB 카드에서도 이 그리드로 8x1 완주를 시험한다."""
+    out = []
+    for s in seeds:
+        out += [dict(c, activation_checkpointing=True) for c in _fit_full_nall(((8, 1),), seed=s, epochs=epochs)]
+    return out
+
+
+def scfoundation_ckpt_more_grid(epochs=10):
+    """ckpt_check(seed 42) 통과 후 seed 43, 44 추가."""
+    return scfoundation_ckpt_check_grid(seeds=(43, 44), epochs=epochs)
