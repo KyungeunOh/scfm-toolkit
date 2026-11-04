@@ -330,6 +330,8 @@ _GRID_FUNCS = {
     "lr_all_s42": grid_mod.scfoundation_lr_all_s42_grid,
     "lr_all_s43": grid_mod.scfoundation_lr_all_s43_grid,
     "lr_all_s44": grid_mod.scfoundation_lr_all_s44_grid,
+    "lr_all_s45": grid_mod.scfoundation_lr_all_s45_grid,
+    "lr_all_s46": grid_mod.scfoundation_lr_all_s46_grid,
     "lr_all_low": grid_mod.scfoundation_lr_all_low_grid,
     "fit_real24": grid_mod.scfoundation_fit_real24_grid,
     "fit_real11": grid_mod.scfoundation_fit_real11_grid,

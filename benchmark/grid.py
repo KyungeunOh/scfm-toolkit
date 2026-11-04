@@ -751,6 +751,16 @@ def scfoundation_pancreas_ckpt_11gb_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
     return scfoundation_pancreas_ckpt_grid(seeds=seeds, epochs=epochs)
 
 
+def scfoundation_lr_all_s45_grid(epochs=10):
+    """Brain N=전체 lr 격자 seed 45 (3 seed -> 5 seed 확장, 2026-11-04)."""
+    return scfoundation_lr_all_grid(seeds=(45,), epochs=epochs)
+
+
+def scfoundation_lr_all_s46_grid(epochs=10):
+    """Brain N=전체 lr 격자 seed 46 (3 seed -> 5 seed 확장, 2026-11-04)."""
+    return scfoundation_lr_all_grid(seeds=(46,), epochs=epochs)
+
+
 _LR_ALL_SPECS = (
     # (unfrozen_layers, lrs): N=10/50 lr sweep(scfoundation_lr_grid)과 같은 격자
     (0, (3e-4, 1e-3, 1e-2)),
