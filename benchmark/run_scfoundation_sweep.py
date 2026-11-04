@@ -325,6 +325,8 @@ _GRID_FUNCS = {
     "seed_repeat_dropout": grid_mod.scfoundation_seed_repeat_dropout_grid,
     "pancreas_lr_rest": grid_mod.scfoundation_pancreas_lr_rest_grid,
     "pancreas_lr_edge": grid_mod.scfoundation_pancreas_lr_edge_grid,
+    "pancreas_ckpt": grid_mod.scfoundation_pancreas_ckpt_grid,
+    "pancreas_ckpt_11gb": grid_mod.scfoundation_pancreas_ckpt_11gb_grid,
     "lr_all_s42": grid_mod.scfoundation_lr_all_s42_grid,
     "lr_all_s43": grid_mod.scfoundation_lr_all_s43_grid,
     "lr_all_s44": grid_mod.scfoundation_lr_all_s44_grid,

@@ -736,6 +736,21 @@ def scfoundation_pancreas_lr_edge_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
     return out
 
 
+def scfoundation_pancreas_ckpt_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """Pancreas N=50 full lr 1e-5 + activation checkpointing (2026-11-04).
+    pancreas_lr_edge 의 같은 설정(N=50, full, lr 1e-5, 5 seed)을 그대로 가져와 activation_checkpointing=True 만 추가:
+    같은 GPU(A6000)의 기존 비ckpt 행과 seed 별 동등성을 비교하고, 2080 Ti(11GB)에서는 완주 여부를 본다."""
+    edge = [c for c in scfoundation_pancreas_lr_edge_grid(seeds=seeds, epochs=epochs)
+            if c["train_n_per_type"] == 50 and c["scfoundation_unfrozen_layers"] == 12]
+    assert len(edge) == len(seeds), len(edge)
+    return [dict(c, activation_checkpointing=True) for c in edge]
+
+
+def scfoundation_pancreas_ckpt_11gb_grid(seeds=(42, 43, 44, 45, 46), epochs=10):
+    """pancreas_ckpt 와 같은 설정, 별도 CSV 파일용 alias (2080 Ti)."""
+    return scfoundation_pancreas_ckpt_grid(seeds=seeds, epochs=epochs)
+
+
 _LR_ALL_SPECS = (
     # (unfrozen_layers, lrs): N=10/50 lr sweep(scfoundation_lr_grid)과 같은 격자
     (0, (3e-4, 1e-3, 1e-2)),
