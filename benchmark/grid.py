@@ -761,6 +761,16 @@ def scfoundation_lr_all_s46_grid(epochs=10):
     return scfoundation_lr_all_grid(seeds=(46,), epochs=epochs)
 
 
+def scfoundation_lr_all_low_s45_46_grid(epochs=10):
+    """Brain N=전체 full lr 1e-5, seed 45, 46 (lr_all_low 의 3 seed -> 5 seed 확장, 2026-11-05)."""
+    return scfoundation_lr_all_low_grid(seeds=(45, 46), epochs=epochs)
+
+
+def scfoundation_lr_all_lower_s45_46_grid(epochs=10):
+    """Brain N=전체 full lr 3e-6, seed 45, 46 (lr_all_lower 의 3 seed -> 5 seed 확장, 선택, 2026-11-05)."""
+    return scfoundation_lr_all_lower_grid(seeds=(45, 46), epochs=epochs)
+
+
 _LR_ALL_SPECS = (
     # (unfrozen_layers, lrs): N=10/50 lr sweep(scfoundation_lr_grid)과 같은 격자
     (0, (3e-4, 1e-3, 1e-2)),
