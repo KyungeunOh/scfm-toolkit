@@ -1,0 +1,264 @@
+run_id,scope,n_per_type,seed,true_type,pred_type,n
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,PVALB-expressing interneuron,817
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,SST-expressing interneuron,31
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,SV2C-expressing interneuron,11
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,VIP-expressing interneuron,7
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,cortical layer 2-3 excitatory neuron A,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,cortical layer 5-6 excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,endothelial cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,mixed glial cell?,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,oligodendrocyte precursor cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,PVALB-expressing interneuron,pyramidal neuron?,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,SST-expressing interneuron,PVALB-expressing interneuron,30
+20261105T031054405796,ft_last12_embtrainable,100000,45,SST-expressing interneuron,SST-expressing interneuron,219
+20261105T031054405796,ft_last12_embtrainable,100000,45,SST-expressing interneuron,SV2C-expressing interneuron,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,SST-expressing interneuron,VIP-expressing interneuron,3
+20261105T031054405796,ft_last12_embtrainable,100000,45,SST-expressing interneuron,astrocyte,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,SST-expressing interneuron,mixed excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,SST-expressing interneuron,pyramidal neuron?,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,SV2C-expressing interneuron,PVALB-expressing interneuron,6
+20261105T031054405796,ft_last12_embtrainable,100000,45,SV2C-expressing interneuron,SST-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,SV2C-expressing interneuron,SV2C-expressing interneuron,314
+20261105T031054405796,ft_last12_embtrainable,100000,45,SV2C-expressing interneuron,VIP-expressing interneuron,21
+20261105T031054405796,ft_last12_embtrainable,100000,45,SV2C-expressing interneuron,oligodendrocyte precursor cell,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,PVALB-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,SST-expressing interneuron,5
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,SV2C-expressing interneuron,6
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,VIP-expressing interneuron,1138
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,cortical layer 2-3 excitatory neuron B,3
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,endothelial cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,mixed excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,mixed glial cell?,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,VIP-expressing interneuron,oligodendrocyte precursor cell,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,astrocyte,astrocyte,1311
+20261105T031054405796,ft_last12_embtrainable,100000,45,astrocyte,cortical layer 4 excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,astrocyte,endothelial cell,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,astrocyte,mixed excitatory neuron,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,astrocyte,mixed glial cell?,9
+20261105T031054405796,ft_last12_embtrainable,100000,45,astrocyte,oligodendrocyte precursor cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,astrocyte,pyramidal neuron?,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron A,cortical layer 2-3 excitatory neuron A,163
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron A,cortical layer 2-3 excitatory neuron B,121
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron A,cortical layer 4 excitatory neuron,22
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron A,cortical layer 5-6 excitatory neuron,6
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron A,mixed excitatory neuron,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,PVALB-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,VIP-expressing interneuron,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,cortical layer 2-3 excitatory neuron A,104
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,cortical layer 2-3 excitatory neuron B,1969
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,cortical layer 4 excitatory neuron,36
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,cortical layer 5-6 excitatory neuron,35
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,endothelial cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,mixed excitatory neuron,25
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 2-3 excitatory neuron B,pyramidal neuron?,3
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,PVALB-expressing interneuron,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,VIP-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,cortical layer 2-3 excitatory neuron A,13
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,cortical layer 2-3 excitatory neuron B,52
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,cortical layer 4 excitatory neuron,1371
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,cortical layer 5-6 excitatory neuron,45
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,endothelial cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,mixed excitatory neuron,16
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 4 excitatory neuron,pyramidal neuron?,3
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,PVALB-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,SST-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,VIP-expressing interneuron,7
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,astrocyte,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,cortical layer 2-3 excitatory neuron A,68
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,cortical layer 2-3 excitatory neuron B,151
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,cortical layer 4 excitatory neuron,170
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,cortical layer 5-6 excitatory neuron,1290
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,mixed excitatory neuron,32
+20261105T031054405796,ft_last12_embtrainable,100000,45,cortical layer 5-6 excitatory neuron,mixed glial cell?,8
+20261105T031054405796,ft_last12_embtrainable,100000,45,endothelial cell,endothelial cell,168
+20261105T031054405796,ft_last12_embtrainable,100000,45,endothelial cell,mixed excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,endothelial cell,mixed glial cell?,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,astrocyte,9
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,cortical layer 2-3 excitatory neuron B,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,endothelial cell,6
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,microglial cell,86
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,mixed excitatory neuron,8
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,mixed glial cell?,6
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,oligodendrocyte A,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,microglial cell,pyramidal neuron?,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,SST-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,VIP-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,cortical layer 2-3 excitatory neuron A,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,cortical layer 2-3 excitatory neuron B,24
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,cortical layer 4 excitatory neuron,26
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,cortical layer 5-6 excitatory neuron,26
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,mixed excitatory neuron,93
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,mixed glial cell?,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,oligodendrocyte A,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed excitatory neuron,pyramidal neuron?,7
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,SV2C-expressing interneuron,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,VIP-expressing interneuron,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,astrocyte,14
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,cortical layer 2-3 excitatory neuron B,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,cortical layer 4 excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,mixed excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,mixed glial cell?,510
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,oligodendrocyte A,27
+20261105T031054405796,ft_last12_embtrainable,100000,45,mixed glial cell?,oligodendrocyte precursor cell,15
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte A,mixed glial cell?,6
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte A,oligodendrocyte A,1210
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte C,PVALB-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte C,SST-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte C,VIP-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte C,mixed excitatory neuron,14
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte C,mixed glial cell?,7
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte C,pyramidal neuron?,10
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,PVALB-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,VIP-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,astrocyte,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,cortical layer 2-3 excitatory neuron B,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,cortical layer 5-6 excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,endothelial cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,mixed excitatory neuron,3
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,mixed glial cell?,8
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,oligodendrocyte A,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,oligodendrocyte precursor cell,845
+20261105T031054405796,ft_last12_embtrainable,100000,45,oligodendrocyte precursor cell,pyramidal neuron?,2
+20261105T031054405796,ft_last12_embtrainable,100000,45,phagocyte,microglial cell,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,phagocyte,mixed glial cell?,50
+20261105T031054405796,ft_last12_embtrainable,100000,45,phagocyte,oligodendrocyte A,27
+20261105T031054405796,ft_last12_embtrainable,100000,45,phagocyte,phagocyte,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,PVALB-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,SST-expressing interneuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,SV2C-expressing interneuron,4
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,VIP-expressing interneuron,6
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,cortical layer 2-3 excitatory neuron B,3
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,cortical layer 4 excitatory neuron,1
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,mixed excitatory neuron,22
+20261105T031054405796,ft_last12_embtrainable,100000,45,pyramidal neuron?,pyramidal neuron?,490
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,PVALB-expressing interneuron,841
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,SST-expressing interneuron,19
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,SV2C-expressing interneuron,8
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,VIP-expressing interneuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,cortical layer 5-6 excitatory neuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,endothelial cell,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,mixed glial cell?,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,oligodendrocyte precursor cell,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,PVALB-expressing interneuron,pyramidal neuron?,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,SST-expressing interneuron,PVALB-expressing interneuron,60
+20261105T033907257476,ft_last12_embtrainable,100000,46,SST-expressing interneuron,SST-expressing interneuron,192
+20261105T033907257476,ft_last12_embtrainable,100000,46,SST-expressing interneuron,SV2C-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,SST-expressing interneuron,VIP-expressing interneuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,SST-expressing interneuron,astrocyte,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,SST-expressing interneuron,pyramidal neuron?,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,SV2C-expressing interneuron,PVALB-expressing interneuron,17
+20261105T033907257476,ft_last12_embtrainable,100000,46,SV2C-expressing interneuron,SST-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,SV2C-expressing interneuron,SV2C-expressing interneuron,311
+20261105T033907257476,ft_last12_embtrainable,100000,46,SV2C-expressing interneuron,VIP-expressing interneuron,11
+20261105T033907257476,ft_last12_embtrainable,100000,46,SV2C-expressing interneuron,mixed excitatory neuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,SV2C-expressing interneuron,mixed glial cell?,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,SV2C-expressing interneuron,oligodendrocyte precursor cell,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,PVALB-expressing interneuron,9
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,SST-expressing interneuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,SV2C-expressing interneuron,13
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,VIP-expressing interneuron,1120
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,cortical layer 2-3 excitatory neuron A,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,cortical layer 2-3 excitatory neuron B,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,endothelial cell,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,mixed excitatory neuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,mixed glial cell?,5
+20261105T033907257476,ft_last12_embtrainable,100000,46,VIP-expressing interneuron,oligodendrocyte precursor cell,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,PVALB-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,astrocyte,1261
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,cortical layer 2-3 excitatory neuron B,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,cortical layer 4 excitatory neuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,endothelial cell,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,mixed excitatory neuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,mixed glial cell?,55
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,oligodendrocyte precursor cell,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,astrocyte,pyramidal neuron?,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron A,cortical layer 2-3 excitatory neuron A,187
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron A,cortical layer 2-3 excitatory neuron B,87
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron A,cortical layer 4 excitatory neuron,23
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron A,cortical layer 5-6 excitatory neuron,15
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron A,mixed excitatory neuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,PVALB-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,VIP-expressing interneuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,cortical layer 2-3 excitatory neuron A,186
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,cortical layer 2-3 excitatory neuron B,1871
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,cortical layer 4 excitatory neuron,48
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,cortical layer 5-6 excitatory neuron,39
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,endothelial cell,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,mixed excitatory neuron,24
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,oligodendrocyte precursor cell,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 2-3 excitatory neuron B,pyramidal neuron?,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,PVALB-expressing interneuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,cortical layer 2-3 excitatory neuron A,16
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,cortical layer 2-3 excitatory neuron B,36
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,cortical layer 4 excitatory neuron,1380
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,cortical layer 5-6 excitatory neuron,52
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,endothelial cell,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,mixed excitatory neuron,13
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,mixed glial cell?,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 4 excitatory neuron,pyramidal neuron?,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,PVALB-expressing interneuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,VIP-expressing interneuron,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,astrocyte,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,cortical layer 2-3 excitatory neuron A,77
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,cortical layer 2-3 excitatory neuron B,112
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,cortical layer 4 excitatory neuron,172
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,cortical layer 5-6 excitatory neuron,1340
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,mixed excitatory neuron,10
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,mixed glial cell?,7
+20261105T033907257476,ft_last12_embtrainable,100000,46,cortical layer 5-6 excitatory neuron,pyramidal neuron?,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,endothelial cell,endothelial cell,167
+20261105T033907257476,ft_last12_embtrainable,100000,46,endothelial cell,mixed excitatory neuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,endothelial cell,mixed glial cell?,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,microglial cell,endothelial cell,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,microglial cell,microglial cell,94
+20261105T033907257476,ft_last12_embtrainable,100000,46,microglial cell,mixed excitatory neuron,8
+20261105T033907257476,ft_last12_embtrainable,100000,46,microglial cell,mixed glial cell?,9
+20261105T033907257476,ft_last12_embtrainable,100000,46,microglial cell,phagocyte,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,microglial cell,pyramidal neuron?,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,PVALB-expressing interneuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,SST-expressing interneuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,VIP-expressing interneuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,cortical layer 2-3 excitatory neuron A,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,cortical layer 2-3 excitatory neuron B,19
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,cortical layer 4 excitatory neuron,27
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,cortical layer 5-6 excitatory neuron,24
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,mixed excitatory neuron,76
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,mixed glial cell?,7
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed excitatory neuron,pyramidal neuron?,21
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,PVALB-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,SV2C-expressing interneuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,VIP-expressing interneuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,astrocyte,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,cortical layer 2-3 excitatory neuron B,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,cortical layer 4 excitatory neuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,cortical layer 5-6 excitatory neuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,mixed glial cell?,530
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,oligodendrocyte A,21
+20261105T033907257476,ft_last12_embtrainable,100000,46,mixed glial cell?,oligodendrocyte precursor cell,10
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte A,mixed glial cell?,18
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte A,oligodendrocyte A,1198
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte C,PVALB-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte C,SST-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte C,mixed excitatory neuron,9
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte C,mixed glial cell?,12
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte C,pyramidal neuron?,11
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,PVALB-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,astrocyte,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,cortical layer 2-3 excitatory neuron B,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,cortical layer 5-6 excitatory neuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,endothelial cell,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,mixed glial cell?,17
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,oligodendrocyte precursor cell,839
+20261105T033907257476,ft_last12_embtrainable,100000,46,oligodendrocyte precursor cell,pyramidal neuron?,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,phagocyte,mixed glial cell?,51
+20261105T033907257476,ft_last12_embtrainable,100000,46,phagocyte,oligodendrocyte A,27
+20261105T033907257476,ft_last12_embtrainable,100000,46,phagocyte,phagocyte,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,PVALB-expressing interneuron,4
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,SST-expressing interneuron,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,SV2C-expressing interneuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,VIP-expressing interneuron,6
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,cortical layer 2-3 excitatory neuron B,1
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,cortical layer 4 excitatory neuron,3
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,cortical layer 5-6 excitatory neuron,2
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,mixed excitatory neuron,17
+20261105T033907257476,ft_last12_embtrainable,100000,46,pyramidal neuron?,pyramidal neuron?,491
