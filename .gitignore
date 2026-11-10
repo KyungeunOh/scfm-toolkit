@@ -10,3 +10,4 @@ __pycache__/
 *.log
 tests/fixtures/
 tests/demo_outputs/
+*.bak_*
