@@ -69,7 +69,7 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
     cfg = apply_overrides(ctx["cfg_base"], override)
     run_id = blog.new_run_id()
 
-    if cfg.get("seed_torch", False):
+    if cfg.get("seed_torch", True)  # 2026-11-11: 기본값 False -> True (사용자 경로 set_seed와 같은 정책):
         # 2026-10-08: 같은 seed 반복이 서로 달랐던 문제(torch/numpy seed 미고정) 대응.
         # head 초기화, DataLoader shuffle, dropout을 seed로 고정한다 (cuDNN/atomic 연산 때문에
         # bit 단위 완전 재현까지는 보장하지 않음).
@@ -111,14 +111,14 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
 
     if cfg.get("train_n_per_type"):
         row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) +
-                               f" | n_per_type={cfg['train_n_per_type']} seed_torch={cfg.get('seed_torch', False)}"
+                               f" | n_per_type={cfg['train_n_per_type']} seed_torch={cfg.get('seed_torch', True)}"
                                ).strip(" |")
 
     # seed_torch 를 notes 에 항상 기록 (위 train_n_per_type 분기는 그 값이 있을 때만 기록해서,
     # 그 외 실행은 난수 고정 여부를 CSV 에서 알 수 없었다)
     if not cfg.get("train_n_per_type"):
         row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) +
-                               f" | seed_torch={cfg.get('seed_torch', False)}").strip(" |")
+                               f" | seed_torch={cfg.get('seed_torch', True)}").strip(" |")
 
     if memory_budget_gb is not None:
         try:
