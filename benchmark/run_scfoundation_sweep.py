@@ -114,6 +114,12 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
                                f" | n_per_type={cfg['train_n_per_type']} seed_torch={cfg.get('seed_torch', False)}"
                                ).strip(" |")
 
+    # seed_torch 를 notes 에 항상 기록 (위 train_n_per_type 분기는 그 값이 있을 때만 기록해서,
+    # 그 외 실행은 난수 고정 여부를 CSV 에서 알 수 없었다)
+    if not cfg.get("train_n_per_type"):
+        row_kwargs["notes"] = (str(row_kwargs.get("notes", "")) +
+                               f" | seed_torch={cfg.get('seed_torch', False)}").strip(" |")
+
     if memory_budget_gb is not None:
         try:
             simulated = set_memory_budget_gb(memory_budget_gb, device)

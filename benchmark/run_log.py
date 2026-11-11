@@ -16,6 +16,7 @@ benchmark/run_log.py
 
 import csv
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -88,6 +89,12 @@ def _get_package_version(pkg_name: str) -> Optional[str]:
 
 
 def _get_git_commit() -> Optional[str]:
+    # docker 컨테이너에는 .git 이 마운트되지 않아 아래 git rev-parse 가 실패한다.
+    # 실행 스크립트(scfm_run_grid.sh)가 호스트에서 구한 값을 SCFM_GIT_COMMIT 로 넘기면 그것을 우선 쓴다.
+    # (코드가 커밋과 다르면 "<hash>-dirty")
+    env_commit = os.environ.get("SCFM_GIT_COMMIT", "").strip()
+    if env_commit:
+        return env_commit
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
