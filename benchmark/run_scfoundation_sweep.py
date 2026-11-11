@@ -69,7 +69,7 @@ def run_one(adapter, ctx: dict, override: dict, device, csv_path: Path, memory_b
     cfg = apply_overrides(ctx["cfg_base"], override)
     run_id = blog.new_run_id()
 
-    if cfg.get("seed_torch", True)  # 2026-11-11: 기본값 False -> True (사용자 경로 set_seed와 같은 정책):
+    if cfg.get("seed_torch", True):  # 2026-11-11: 기본값 False -> True (사용자 경로 set_seed와 같은 정책)
         # 2026-10-08: 같은 seed 반복이 서로 달랐던 문제(torch/numpy seed 미고정) 대응.
         # head 초기화, DataLoader shuffle, dropout을 seed로 고정한다 (cuDNN/atomic 연산 때문에
         # bit 단위 완전 재현까지는 보장하지 않음).
