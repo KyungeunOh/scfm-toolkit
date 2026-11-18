@@ -319,21 +319,36 @@ class GeneformerAdapter(ModelAdapter):
             input_data_file=str(work_dir / "reference_tokenized.dataset"),
             output_directory=str(work_dir),
             output_prefix="reference",
+            test_size=0,  # 2026-11-19 prepare_data: 기본 hold-out 분할 방지(train_all_data 는 전체 사용)
         )
         id_class_dict_file = work_dir / "reference_id_class_dict.pkl"
 
+        # 2026-11-19 prepare_data: query 라벨이 reference 매핑에 없는지 사전 검사
+        import pickle as _pk
+        with open(id_class_dict_file, "rb") as _f:
+            _ref_classes = set(_pk.load(_f).values())
+        _q_tok = load_from_disk(str(work_dir / "query_tokenized.dataset"))
+        _unknown = sorted(set(_q_tok[celltype_col]) - _ref_classes)
+        if _unknown:
+            raise ValueError(f"query 에만 있는 라벨(reference 매핑에 없음): {_unknown}")
         logger.info("Query prepare_data (reference의 label 매핑 재사용)...")
         classifier.prepare_data(
             input_data_file=str(work_dir / "query_tokenized.dataset"),
             output_directory=str(work_dir),
             output_prefix="query",
-            id_class_dict_file=str(id_class_dict_file),
+            id_class_dict_path=str(id_class_dict_file),  # 2026-11-19 prepare_data: 인자명 수정(_file -> _path)
+            test_size=0,
         )
 
         prepared_train_file = work_dir / "reference_labeled.dataset"
         prepared_query_file = work_dir / "query_labeled.dataset"
         train_dataset = load_from_disk(str(prepared_train_file))
         logger.info(f"reference labeled dataset: {len(train_dataset)}개 셀")
+        logger.info(
+            f"셀 수 확인: reference tokenized={len(load_from_disk(str(work_dir / 'reference_tokenized.dataset')))} "
+            f"labeled={len(train_dataset)} | query tokenized={len(_q_tok)} "
+            f"labeled={len(load_from_disk(str(prepared_query_file)))}"
+        )
 
         return {
             "train_loader": train_dataset,
