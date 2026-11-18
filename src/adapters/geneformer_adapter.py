@@ -162,10 +162,12 @@ class GeneformerAdapter(ModelAdapter):
 
         # reference 는 var_names 가 symbol, query 는 Ensembl ID 인 경우가 있다(Brain atlas). 이 재색인 없이
         # concatenate() 하면 var_names 교집합이 0 이 된다 (scfoundation_adapter 2026-09-22 수정과 같은 문제).
-        if "gene_name" in adata.var.columns:
-            adata.var.set_index(adata.var["gene_name"], inplace=True)
-        if "gene_name" in adata_test.var.columns:
-            adata_test.var.set_index(adata_test.var["gene_name"], inplace=True)
+        if "gene_name" in adata.var.columns:  # 2026-11-18 var index: 인덱스 이름이 gene_name 열과 충돌하지 않게
+            adata.var_names = adata.var["gene_name"].astype(str).values
+            adata.var.index.name = None
+        if "gene_name" in adata_test.var.columns:  # 2026-11-18 var index: 인덱스 이름이 gene_name 열과 충돌하지 않게
+            adata_test.var_names = adata_test.var["gene_name"].astype(str).values
+            adata_test.var.index.name = None
 
         adata.obs[celltype_col] = adata.obs[source_col].astype("category")
         adata_test.obs[celltype_col] = adata_test.obs[source_col].astype("category")
@@ -283,6 +285,8 @@ class GeneformerAdapter(ModelAdapter):
         ref_h5ad_dir.mkdir(exist_ok=True)
         query_h5ad_dir.mkdir(exist_ok=True)
 
+        # 2026-11-18 var index: 인덱스 이름이 var 열 이름과 같으면 write_h5ad 가 ValueError
+        adata.var.index.name = None
         adata[ref_mask].copy().write_h5ad(ref_h5ad_dir / "reference.h5ad")
         adata[query_mask].copy().write_h5ad(query_h5ad_dir / "query.h5ad")
 
