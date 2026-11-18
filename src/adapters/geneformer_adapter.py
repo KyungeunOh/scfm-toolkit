@@ -481,6 +481,7 @@ class GeneformerAdapter(ModelAdapter):
             output_directory=str(work_dir) + "/",
             output_prefix="query",
             predict=True,
+            predict_metadata=["_scfm_cell_id"],  # 2026-11-19 predict: 위치 가정 대신 셀 id 를 직접 받음
         )
 
         with open(work_dir / "query_pred_dict.pkl", "rb") as f:
@@ -496,9 +497,11 @@ class GeneformerAdapter(ModelAdapter):
         pred_ids = probs.argmax(axis=1)
         pred_scores = probs.max(axis=1)
 
-        query_dataset = load_from_disk(str(prepared_inputs["prepared_query_file"]))
         n = len(pred_ids)
-        cell_ids = query_dataset["_scfm_cell_id"][:n]
+        # 2026-11-19 predict: 예측과 같은 순서/길이로 라이브러리가 돌려준 셀 id
+        cell_ids = list(pred_dict["prediction_metadata"]["_scfm_cell_id"])
+        if len(cell_ids) != n:
+            raise RuntimeError(f"예측 {n}개 vs 셀 id {len(cell_ids)}개: 길이 불일치")
 
         pred_labels = [id_class_dict[i] for i in pred_ids]
         pred_series = pd.Series(pred_labels, index=cell_ids)
@@ -508,6 +511,19 @@ class GeneformerAdapter(ModelAdapter):
         adata_test.obs["predictions"] = pred_series.reindex(adata_test.obs["_scfm_cell_id"]).values
         adata_test.obs["pred_score"] = score_series.reindex(adata_test.obs["_scfm_cell_id"]).values
 
+        # 2026-11-19 predict: 라벨 매핑 정합성 검사 (틀리면 에러 없이 F1 만 낮아지는 종류의 오류)
+        _lib_true = np.asarray([id_class_dict[i] for i in pred_dict["label_ids"]], dtype=object)
+        _adata_true = np.asarray(
+            adata_test.obs.set_index("_scfm_cell_id")[cfg["celltype_col"]].astype(str).reindex(cell_ids).values,
+            dtype=object,
+        )
+        _bad = int((_lib_true != _adata_true).sum())
+        if _bad:
+            raise RuntimeError(
+                f"라벨 정합성 실패: {n}개 중 {_bad}개 셀에서 라이브러리의 정답 라벨이 adata 의 celltype 과 다릅니다 "
+                f"(셀 id 정렬 또는 label<->id 매핑 오류 가능성)."
+            )
+        logger.info(f"라벨 정합성 확인: {n}개 셀 모두 일치")
         n_missing = int(adata_test.obs["predictions"].isna().sum())
         if n_missing:
             logger.warning(
