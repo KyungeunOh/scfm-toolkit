@@ -1,0 +1,36 @@
+# =========================================================================
+# Geneformer 전용 이미지 (scGPT/scFoundation 이미지와 분리)
+#   이유: transformers==4.46 이 huggingface-hub<1.0 을 요구해서, scGPT 스택의
+#   huggingface_hub==1.8.0 과 한 이미지에 둘 수 없다 (requirements-geneformer.txt 머리말 참고).
+#   torch(2.0.1+cu117)와 numpy(<2)는 제약 파일로 고정한다. torch 2.0.1 은 numpy 2.x 와 맞지 않는다.
+#   Geneformer 코드/가중치는 이미지에 넣지 않는다: 실행 시 ~/Geneformer 를 /workspace/Geneformer 로
+#   마운트하고 PYTHONPATH 로 import 한다 (LFS 파일 보존, commit 해시는 결과 기록에 남긴다).
+# =========================================================================
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+
+LABEL description="scfm-toolkit Geneformer environment (separate from scGPT stack)"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    WANDB_MODE=offline \
+    PYTHONPATH=/workspace/Geneformer
+
+WORKDIR /workspace
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN printf 'torch==2.0.1\nnumpy<2\n' > /tmp/constraints.txt
+COPY requirements-geneformer.txt /tmp/requirements-geneformer.txt
+RUN pip install --no-cache-dir -c /tmp/constraints.txt -r /tmp/requirements-geneformer.txt
+
+# 설치 검증: torch/numpy 가 바뀌지 않았고, 핵심 패키지가 import 되는지 (GPU 없이 가능한 범위)
+RUN python -c "import torch; assert torch.__version__.startswith('2.0.1'), torch.__version__; print('torch', torch.__version__)" \
+    && python -c "import numpy; assert numpy.__version__.startswith('1.'), numpy.__version__; print('numpy', numpy.__version__)" \
+    && python -c "import transformers, datasets, anndata, scanpy, peft, accelerate; print('transformers', transformers.__version__, '| peft', peft.__version__, '| accelerate', accelerate.__version__)"
+# bitsandbytes 는 GPU 없이는 import 시 경고만 나올 수 있어 빌드 단계에서는 검사하지 않는다 (GPU 시험 단계에서 확인).
+
+ENTRYPOINT ["python", "/workspace/src/run.py"]

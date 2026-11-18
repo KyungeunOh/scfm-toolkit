@@ -1,0 +1,20 @@
+# Geneformer 시험 실행용 config (G2). 컨테이너 안 경로 기준. benchmark/geneformer_smoke.py 가 읽는다.
+model: geneformer
+output_dir: /workspace/benchmark_results/geneformer_smoke   # 호스트의 ~/scfm-toolkit/benchmark_results/geneformer_smoke (체크포인트가 쌓이므로 반드시 /home 마운트 안)
+
+# V2-104M: 어댑터가 vocab_size 로 버전을 판별한다(V2 입력 4096, 특수 토큰 사용). Geneformer 저장소는 /workspace/Geneformer 로 마운트.
+model_dir: /workspace/Geneformer/Geneformer-V2-104M
+
+reference_path: /workspace/data/c_data.h5ad
+query_path: /workspace/data/filtered_ms_adata.h5ad
+celltype_col: celltype
+source_celltype_col: "Factor Value[inferred cell type - authors labels]"
+gene_col: gene_name
+data_is_raw: false   # 로그 정규화 입력 -> 어댑터가 expm1 로 되돌림(근사). 결과는 "근사 입력"으로 표기
+
+batch_size: 8
+eval_batch_size: 16
+epochs: 1            # 시험용
+lr: 0.00005
+seed: 42
+num_workers: 1

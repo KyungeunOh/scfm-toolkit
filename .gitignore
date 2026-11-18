@@ -11,3 +11,4 @@ __pycache__/
 tests/fixtures/
 tests/demo_outputs/
 *.bak_*
+benchmark_results/geneformer_smoke/

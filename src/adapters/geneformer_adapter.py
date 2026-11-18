@@ -83,19 +83,66 @@ class GeneformerAdapter(ModelAdapter):
         mapping = self._load_symbol_to_ensembl(cfg["model_dir"])
         return set(mapping.keys())
 
-    def _load_symbol_to_ensembl(self, model_dir) -> Dict[str, str]:
+    @staticmethod
+    def _detect_model_version(model_dir) -> str:
+        """model_dir/config.json 의 vocab_size 를 geneformer 패키지가 가진 토큰 사전
+        (V2: gc104M, V1: gc30M)의 크기와 비교해 모델 버전을 정한다. 어느 쪽과도 맞지 않으면
+        토큰 ID 가 조용히 어긋난 채로 학습되는 대신 에러를 낸다 (2026-11-11 점검: V2-104M 20275, V1-10M 25426)."""
+        import json
         import pickle
 
-        matches = sorted(Path(model_dir).glob("gene_name_id_dict*.pkl"))
-        if not matches:
+        import geneformer
+
+        cfg_path = Path(model_dir) / "config.json"
+        if not cfg_path.exists():
             raise FileNotFoundError(
-                f"{model_dir}에서 symbol->Ensembl ID 매핑 파일(gene_name_id_dict*.pkl)을 "
-                f"찾을 수 없습니다. Geneformer 사전학습 모델 디렉터리(config.json, "
-                f"model.safetensors, gene_name_id_dict*.pkl 등이 있는 곳)가 맞는지 "
-                f"확인해주세요."
+                f"{cfg_path} 가 없습니다. model_dir 이 Geneformer 모델 폴더(예: Geneformer-V2-104M)인지 확인해주세요."
             )
-        with open(matches[0], "rb") as f:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            vocab_size = json.load(f)["vocab_size"]
+        sizes = {}
+        for ver, tok in (("V2", geneformer.TOKEN_DICTIONARY_FILE), ("V1", geneformer.TOKEN_DICTIONARY_FILE_30M)):
+            with open(tok, "rb") as f:
+                sizes[ver] = len(pickle.load(f))
+        for ver, n in sizes.items():
+            if n == vocab_size:
+                return ver
+        raise ValueError(
+            f"{cfg_path} 의 vocab_size={vocab_size} 가 geneformer 패키지의 토큰 사전 크기 {sizes} 와 맞지 않습니다. "
+            f"모델 폴더와 geneformer 코드(PYTHONPATH)의 버전이 다른 것으로 보입니다."
+        )
+
+    def _load_symbol_to_ensembl(self, model_dir) -> Dict[str, str]:
+        """symbol -> Ensembl ID 사전. 이 파일은 모델 폴더가 아니라 geneformer 패키지(PYTHONPATH 의
+        Geneformer 저장소)에 들어 있고, 모델 버전(V1: gc30M, V2: gc104M)에 맞는 것을 쓴다.
+        토크나이저가 쓰는 사전과 같은 계열이다."""
+        import pickle
+
+        import geneformer
+
+        version = self._detect_model_version(model_dir)
+        path = geneformer.ENSEMBL_DICTIONARY_FILE_30M if version == "V1" else geneformer.ENSEMBL_DICTIONARY_FILE
+        logger.info(f"Geneformer 모델 버전 {version}: symbol->Ensembl 사전 {path}")
+        with open(path, "rb") as f:
             return pickle.load(f)
+
+    @staticmethod
+    def _training_args(cfg: Dict[str, Any]) -> Dict[str, Any]:
+        """config 의 epochs, batch_size, lr, seed 를 HuggingFace TrainingArguments 로 전달한다.
+        Classifier 는 training_args 가 없으면 자체 기본값(epochs 10, batch 12 등)으로 학습해서
+        config 값이 무시된다. optimizer(AdamW)와 스케줄러(linear)는 라이브러리 방식을 그대로 따른다."""
+        args = {
+            "num_train_epochs": cfg["epochs"],
+            "per_device_train_batch_size": cfg["batch_size"],
+            "per_device_eval_batch_size": cfg.get("eval_batch_size", cfg["batch_size"]),
+            "seed": int(cfg.get("seed", 42)),
+            # 에폭마다 체크포인트(모델+옵티마이저, 1GB 이상)가 쌓이지 않게 마지막 1개만 둔다.
+            # (classifier.py 의 hyperparameter 탐색 경로에는 같은 제한이 있지만 train_all_data 경로에는 없다)
+            "save_total_limit": 1,
+        }
+        if cfg.get("lr") is not None:
+            args["learning_rate"] = float(cfg["lr"])
+        return args
 
     # ------------------------------------------------------------------
     # 데이터 로드
@@ -112,6 +159,13 @@ class GeneformerAdapter(ModelAdapter):
         adata = sc.read(ref_path)
         logger.info(f"Query 로드: {query_path}")
         adata_test = sc.read(query_path)
+
+        # reference 는 var_names 가 symbol, query 는 Ensembl ID 인 경우가 있다(Brain atlas). 이 재색인 없이
+        # concatenate() 하면 var_names 교집합이 0 이 된다 (scfoundation_adapter 2026-09-22 수정과 같은 문제).
+        if "gene_name" in adata.var.columns:
+            adata.var.set_index(adata.var["gene_name"], inplace=True)
+        if "gene_name" in adata_test.var.columns:
+            adata_test.var.set_index(adata_test.var["gene_name"], inplace=True)
 
         adata.obs[celltype_col] = adata.obs[source_col].astype("category")
         adata_test.obs[celltype_col] = adata_test.obs[source_col].astype("category")
@@ -171,9 +225,29 @@ class GeneformerAdapter(ModelAdapter):
         """
         from scipy.sparse import issparse
 
+        if not cfg.get("data_is_raw", True):
+            # Geneformer 는 (count / n_counts * 1e4 / 유전자별 median)의 순위로 토큰화한다 (tokenizer.py tokenize_anndata).
+            # n_counts 는 세포 안 모든 유전자에 같은 상수를 곱하므로 순위에 영향이 없지만, 로그 변환은 영향이 있다.
+            # 그래서 log1p 로 만든 값이라는 가정 아래 expm1 로 되돌린다. 근사다: 이 가정이 맞는지는 데이터마다 다르고
+            # (2026-11-11 점검: Brain atlas 는 세포별 최소 비영값 기준 정수 비율이 0.6~0.7 이라 count 복원이 정확하지 않다).
+            X0 = adata.X
+            if X0.min() < 0:
+                raise ValueError("data_is_raw: false 이지만 X 에 음수가 있습니다(스케일링된 데이터?). expm1 로 되돌릴 수 없습니다.")
+            adata.X = X0.expm1() if issparse(X0) else np.expm1(X0)
+            logger.warning(
+                "data_is_raw=false: X 를 expm1 로 되돌려 Geneformer 입력으로 사용합니다(근사). "
+                "Geneformer 결과는 '근사 입력' 으로 표기하세요."
+            )
+
         X = adata.X
         counts = np.asarray(X.sum(axis=1)).flatten() if issparse(X) else np.asarray(X).sum(axis=1)
         adata.obs["n_counts"] = counts
+
+        # TranscriptomeTokenizer.tokenize_anndata 는 행마다 X_norm[i].data / .indices 를 쓰므로(tokenizer.py 582행)
+        # CSR 희소 행렬이 필요하다. dense 이거나 CSR 이 아닌 입력도 여기서 CSR 로 맞춘다.
+        if not (issparse(adata.X) and adata.X.format == "csr"):
+            from scipy.sparse import csr_matrix
+            adata.X = csr_matrix(adata.X)
         return adata
 
     # ------------------------------------------------------------------
@@ -214,9 +288,13 @@ class GeneformerAdapter(ModelAdapter):
 
         custom_attr_name_dict = {celltype_col: celltype_col, "_scfm_cell_id": "_scfm_cell_id"}
 
+        # model_input_size 는 넘기지 않는다: model_version 에 따라 라이브러리가 맞는 값(V2 4096, V1 2048)을 고른다.
+        # (이전에는 max_seq_len 기본 2048 을 넘겨서 V2 모델에 2048 이 적용되고 model_version 은 전달되지 않았다)
+        model_version = self._detect_model_version(cfg["model_dir"])
+        logger.info(f"Geneformer 모델 버전: {model_version}")
         tokenizer = TranscriptomeTokenizer(
             custom_attr_name_dict=custom_attr_name_dict,
-            model_input_size=cfg.get("max_seq_len", 2048),
+            model_version=model_version,
         )
         logger.info("Reference 토큰화 중 (TranscriptomeTokenizer)...")
         tokenizer.tokenize_data(str(ref_h5ad_dir), str(work_dir), "reference_tokenized", file_format="h5ad")
@@ -228,6 +306,8 @@ class GeneformerAdapter(ModelAdapter):
             cell_state_dict={"state_key": celltype_col, "states": "all"},
             forward_batch_size=cfg.get("eval_batch_size", cfg["batch_size"]),
             nproc=cfg.get("num_workers", 1),
+            model_version=model_version,
+            training_args=self._training_args(cfg),
         )
 
         logger.info("Reference prepare_data (label→id 매핑 생성)...")
