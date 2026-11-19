@@ -395,6 +395,10 @@ class GeneformerAdapter(ModelAdapter):
         classifier = prepared_inputs["classifier"]
 
         logger.info("Fine-tuning 시작 (geneformer Classifier.train_all_data, HuggingFace Trainer 경유)...")
+        # 2026-11-19 seed: Classifier 는 분류 헤드를 만든 뒤에야(Trainer 생성 시점) seed 를 건다.
+        # 헤드 초기화가 seed 와 무관해지지 않도록 모델이 만들어지기 전에 먼저 건다(cudnn 플래그는 추가하지 않음).
+        from transformers import set_seed
+        set_seed(int(cfg.get("seed", 42)))
         classifier.train_all_data(
             model_directory=model.pretrained_model_dir,
             prepared_input_data_file=str(prepared_inputs["prepared_train_file"]),
