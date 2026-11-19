@@ -49,6 +49,7 @@ def score(result, celltype_col):
         "n_query": int(len(y_true)),
         "n_missing_pred": int(result.obs["predictions"].isna().sum()),
         "accuracy": round(float(accuracy_score(y_true, y_pred)), 4),
+        "macro_f1_default": round(float(f1_score(y_true, y_pred, average="macro", zero_division=0)), 4),  # sweep 과 같은 정의
         "macro_f1_query_labels": round(float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)), 4),
     }
 
@@ -58,12 +59,19 @@ def main():
     ap.add_argument("--config", required=True)
     ap.add_argument("--n-per-type", type=int, default=10)
     ap.add_argument("--n-query", type=int, default=100)
+    # 2026-11-19 batch: 설정값 덮어쓰기(주지 않으면 config 값 그대로)
+    ap.add_argument("--epochs", type=int, default=None)
+    ap.add_argument("--lr", type=float, default=None)
+    ap.add_argument("--seed", type=int, default=None)
     args = ap.parse_args()
 
     import yaml
 
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+    for _k in ("epochs", "lr", "seed"):
+        if getattr(args, _k) is not None:
+            cfg[_k] = getattr(args, _k)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     out_dir = Path(cfg["output_dir"]) / f"smoke_{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -74,7 +82,8 @@ def main():
 
     result = {
         "started_utc": stamp, "config": args.config, "n_per_type": args.n_per_type, "n_query": args.n_query,
-        "seed": cfg.get("seed", 42), "model_dir": cfg["model_dir"],
+        "seed": cfg.get("seed", 42), "epochs": cfg.get("epochs"), "lr": cfg.get("lr"), "batch_size": cfg.get("batch_size"),
+        "model_dir": cfg["model_dir"],
         "git_commit": os.environ.get("SCFM_GIT_COMMIT", ""), "geneformer_commit": os.environ.get("GENEFORMER_COMMIT", ""),
         "stages": [], "ok": False,
     }
@@ -126,6 +135,8 @@ def main():
         model = stage("load_model", lambda: adapter.load_model(cfg, num_types, device, vocab=vocab, model_configs=model_configs))
         model = stage("finetune", lambda: adapter.finetune(model, prepared, cfg, device))
         pred = stage("predict", lambda: adapter.predict(model, adata, prepared, id2type, cfg, device))
+        _cols = [c for c in ("_scfm_cell_id", cfg["celltype_col"], "predictions", "pred_score") if c in pred.obs.columns]
+        pred.obs[_cols].to_csv(out_dir / "predictions.csv")
         result["score"] = stage("score", lambda: score(pred, cfg["celltype_col"]))
         print("  점수:", result["score"], flush=True)
         result["ok"] = True

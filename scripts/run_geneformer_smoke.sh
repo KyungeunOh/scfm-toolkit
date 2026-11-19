@@ -30,6 +30,12 @@ LOGFILE="$REPO/benchmark_results/logs/geneformer_smoke_$(date +%Y%m%dT%H%M%S).lo
 USER_ARGS=(--user "$(id -u):$(id -g)" -e HOME=/tmp)
 if [ "${ASROOT:-0}" = "1" ]; then USER_ARGS=(); fi
 
+# 2026-11-19 batch: EPOCHS, LR, SEED 환경변수가 있으면 config 값을 덮어쓴다
+EXTRA=()
+[ -n "${EPOCHS:-}" ] && EXTRA+=(--epochs "$EPOCHS")
+[ -n "${LR:-}" ] && EXTRA+=(--lr "$LR")
+[ -n "${SEED:-}" ] && EXTRA+=(--seed "$SEED")
+
 CMD=(docker run --rm --gpus "\"device=${GPU}\"" "${USER_ARGS[@]}"
   -e "SCFM_GIT_COMMIT=${GIT_COMMIT}" -e "GENEFORMER_COMMIT=${GF_COMMIT}"
   -v "$REPO/data:/workspace/data:ro"
@@ -40,7 +46,7 @@ CMD=(docker run --rm --gpus "\"device=${GPU}\"" "${USER_ARGS[@]}"
   -v "$REPO/benchmark_results:/workspace/benchmark_results"
   --entrypoint python scgpt-toolkit:v0.3-geneformer
   /workspace/benchmark/geneformer_smoke.py --config /workspace/config_geneformer.yaml
-  --n-per-type "$NPT" --n-query "$NQ")
+  --n-per-type "$NPT" --n-query "$NQ" "${EXTRA[@]}")
 
 if [ "${GO:-0}" != "1" ]; then
   echo "[DRY] host=$(hostname) GPU=${GPU} commit=${GIT_COMMIT} geneformer=${GF_COMMIT}"
@@ -50,4 +56,6 @@ if [ "${GO:-0}" != "1" ]; then
 fi
 echo "[GO] 시작 $(date +%T) host=$(hostname) GPU=${GPU} commit=${GIT_COMMIT}"
 "${CMD[@]}" 2>&1 | tee "$LOGFILE"
-echo "[GO] 종료 $(date +%T) 로그=$LOGFILE"
+RC=${PIPESTATUS[0]}
+echo "[GO] 종료 $(date +%T) rc=${RC} 로그=$LOGFILE"
+exit $RC
