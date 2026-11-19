@@ -314,12 +314,22 @@ class GeneformerAdapter(ModelAdapter):
             training_args=self._training_args(cfg),
         )
 
+        # 2026-11-19 labelorder: Classifier 는 라벨->id 를 set(...) 순서로 만든다. 문자열 해시가 프로세스마다 달라(PYTHONHASHSEED)
+        # 같은 설정을 다시 돌려도 클래스 번호가 바뀌어, seed 가 같아도 분류 헤드와 클래스의 대응이 달라진다.
+        # 정렬된 라벨로 매핑을 직접 만들어 넘긴다(reference 에 있는 라벨만 -> 클래스 수는 기본 동작과 같다).
+        import pickle as _pk2
+        _ref_tok = load_from_disk(str(work_dir / "reference_tokenized.dataset"))
+        _fixed = {i: lab for i, lab in enumerate(sorted(set(_ref_tok[celltype_col])))}
+        _fixed_path = work_dir / "reference_id_class_fixed.pkl"
+        with open(_fixed_path, "wb") as _f2:
+            _pk2.dump(_fixed, _f2)
         logger.info("Reference prepare_data (label→id 매핑 생성)...")
         classifier.prepare_data(
             input_data_file=str(work_dir / "reference_tokenized.dataset"),
             output_directory=str(work_dir),
             output_prefix="reference",
             test_size=0,  # 2026-11-19 prepare_data: 기본 hold-out 분할 방지(train_all_data 는 전체 사용)
+            id_class_dict_path=str(_fixed_path),
         )
         id_class_dict_file = work_dir / "reference_id_class_dict.pkl"
 
